@@ -14,6 +14,10 @@ package com.xndev.retroadventure.engine
  *  - Lookup order is motion, then object, then action, first match wins. Several
  *    words live in more than one table ("water" is an object and part of an
  *    action phrase); the order is what disambiguates them.
+ *  - IGNORE only suppresses single-letter words in *oldstyle* mode. Upstream's
+ *    condition is `len > 1 || not in ignore || !oldstyle`, and dropping that
+ *    last term rejects "z" (wait), "l" (look), "i" (inventory) and "x" in
+ *    modern mode -- which reads as a data problem and is not one.
  */
 
 const val TOKLEN = 5
@@ -32,12 +36,16 @@ private fun tokenMatches(word: String, entry: String): Boolean =
     word.take(TOKLEN).lowercase() == entry.take(TOKLEN).lowercase()
 
 object Vocabulary {
+    /** Upstream's `settings.oldstyle`: emulate the 1977 UI, including its warts. */
+    var oldstyle: Boolean = false
+
+    private fun accepted(word: String): Boolean =
+        word.length > 1 || !IGNORE.contains(word[0].uppercaseChar()) || !oldstyle
+
     fun motionId(word: String): Int {
         for (i in motions.indices) {
             for (w in motions[i].words) {
-                if (tokenMatches(word, w) && (word.length > 1 || !IGNORE.contains(word[0].uppercaseChar()))) {
-                    return i
-                }
+                if (tokenMatches(word, w) && accepted(word)) return i
             }
         }
         return WORD_NOT_FOUND
@@ -55,9 +63,7 @@ object Vocabulary {
     fun actionId(word: String): Int {
         for (i in actions.indices) {
             for (w in actions[i].words) {
-                if (tokenMatches(word, w) && (word.length > 1 || !IGNORE.contains(word[0].uppercaseChar()))) {
-                    return i
-                }
+                if (tokenMatches(word, w) && accepted(word)) return i
             }
         }
         return WORD_NOT_FOUND

@@ -70,6 +70,7 @@ class TranscriptTest {
         var matchedLines = 0
         var expectedLines = 0
         val failures = mutableListOf<String>()
+        val blockers = mutableMapOf<String, MutableList<String>>()
 
         for (log in logs) {
             val name = log.name.removeSuffix(".log")
@@ -92,7 +93,9 @@ class TranscriptTest {
             if (actual == expected) {
                 passed++
             } else {
-                failures += "$name: ${firstDivergence(expected, actual)}"
+                val divergence = firstDivergence(expected, actual)
+                failures += "$name: $divergence"
+                blockers.getOrPut(blame(divergence)) { mutableListOf() } += "$name:$divergence"
             }
         }
 
@@ -102,8 +105,17 @@ class TranscriptTest {
         println("Matching prefix:  $matchedLines/$expectedLines lines " +
             "(${matchedLines * 100 / expectedLines}%), ${skipped.size} savegame tests skipped")
         println("=".repeat(72))
-        failures.take(20).forEach { println("  $it") }
-        if (failures.size > 20) println("  ... and ${failures.size - 20} more")
+        // The to-do list in priority order: what is stopping the most
+        // transcripts right now. Port the top entry, re-run, repeat. The
+        // "ported path" bucket is different in kind from the rest -- those are
+        // bugs in code that already exists, not verbs that are missing, and
+        // they are usually worth more than their count suggests.
+        println("Blocking the most transcripts:")
+        for ((cause, hits) in blockers.entries.sortedByDescending { it.value.size }) {
+            println("  %3d  %s".format(hits.size, cause))
+            hits.take(3).forEach { println("         $it") }
+            if (hits.size > 3) println("         ... and ${hits.size - 3} more")
+        }
 
         assertTrue(
             passed >= passBaseline,
@@ -113,6 +125,15 @@ class TranscriptTest {
             matchedLines >= lineBaseline,
             "matching-prefix lines fell to $matchedLines, below the baseline of $lineBaseline"
         )
+    }
+
+    /** Reduce a divergence message to the thing worth fixing. */
+    private fun blame(divergence: String): String {
+        Regex("""\[not ported yet] (verb|bare object) ([^"\s]+)""").find(divergence)?.let {
+            return "${it.groupValues[1]}: ${it.groupValues[2]}"
+        }
+        if (divergence.contains("threw ")) return "crash"
+        return "output mismatch (ported path)"
     }
 
     /** How many leading lines of the expected transcript we reproduce. */
