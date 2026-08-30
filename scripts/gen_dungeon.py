@@ -46,10 +46,19 @@ ignore = ""
 
 
 def kstr(string):
-    """Render a Python string as a Kotlin string literal, or null."""
+    """Render a Python string as a Kotlin string literal, or null.
+
+    Deliberately does NOT escape backslashes, matching upstream's
+    make_c_string(). adventure.yaml uses single-quoted scalars, where a
+    backslash is literal -- a message written with a newline escape arrives here
+    as two characters, and upstream relies on the compiler turning it back into
+    a newline once it lands in a string literal. Kotlin does the same. Escape
+    the backslash and the game prints the escape at the player instead of
+    breaking the line. Only newline and tab escapes appear in the YAML, so there
+    is nothing else to protect against.
+    """
     if string is None:
         return "null"
-    string = string.replace("\\", "\\\\")
     string = string.replace('"', '\\"')
     string = string.replace("$", "\\$")
     string = string.replace("\n", "\\n")

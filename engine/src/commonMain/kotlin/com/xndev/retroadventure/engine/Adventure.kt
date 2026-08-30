@@ -700,7 +700,12 @@ class Adventure(
                         LIGHT -> light(INTRANSITIVE)
                         EXTINGUISH -> extinguish(INTRANSITIVE)
                         GO -> { speak(actions[verb].message); Phase.CLEAROBJ }
-                        QUIT -> Phase.TERMINATE
+                        QUIT -> quit()
+                        POUR -> pour(INTRANSITIVE)
+                        EAT -> eat(INTRANSITIVE)
+                        DRINK -> drink(INTRANSITIVE)
+                        FILL -> fill(INTRANSITIVE)
+                        LISTEN -> listen()
                         INVENTORY -> inven()
                         SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
                         ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
@@ -729,6 +734,13 @@ class Adventure(
         LOCK, UNLOCK -> lock(obj)
         WAVE -> wave(obj)
         ATTACK -> attack(obj)
+        DRINK -> drink(obj)
+        EAT -> eat(obj)
+        FEED -> feed(obj)
+        FILL -> fill(obj)
+        POUR -> pour(obj)
+        THROW -> throwit(obj)
+        WAKE -> wake(obj)
         SEED -> {
             // Speaks the *action's* own message, not an arbitrary message --
             // actions carry a message field of their own and rspeak() would
@@ -1188,6 +1200,289 @@ class Adventure(
             else -> speak(actions[verb].message)
         }
         return Phase.CLEAROBJ
+    }
+
+    /**
+     * Upstream `drink()`. With no object, assume water: from the bottle if it
+     * holds any, otherwise from a stream here.
+     */
+    private fun drink(o: Int): Phase {
+        if (o == INTRANSITIVE && game.liqloc(game.loc) != WATER &&
+            (game.liquid() != WATER || !game.here(BOTTLE))
+        ) return Phase.UNKNOWN
+
+        if (o == BLOOD) {
+            game.destroy(BLOOD)
+            stateChange(DRAGON, DRAGON_BLOODLESS)
+            game.blooded = true
+            return Phase.CLEAROBJ
+        }
+        if (o != INTRANSITIVE && o != WATER) {
+            rspeak(RIDICULOUS_ATTEMPT)
+            return Phase.CLEAROBJ
+        }
+        if (game.liquid() == WATER && game.here(BOTTLE)) {
+            game.objectState[WATER].place = LOC_NOWHERE
+            stateChange(BOTTLE, EMPTY_BOTTLE)
+            return Phase.CLEAROBJ
+        }
+        speak(actions[verb].message)
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `eat()`. Food is fine; some things merely lose your appetite. */
+    private fun eat(o: Int): Phase {
+        when (o) {
+            INTRANSITIVE -> {
+                if (!game.here(FOOD)) return Phase.UNKNOWN
+                game.destroy(FOOD)
+                rspeak(THANKS_DELICIOUS)
+            }
+            FOOD -> {
+                game.destroy(FOOD)
+                rspeak(THANKS_DELICIOUS)
+            }
+            BIRD, SNAKE, CLAM, OYSTER, DWARF, DRAGON, TROLL, BEAR, OGRE ->
+                rspeak(LOST_APPETITE)
+            else -> speak(actions[verb].message)
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `feed()`. Feeding the bear the food is how you tame it. */
+    private fun feed(o: Int): Phase {
+        when (o) {
+            BIRD -> rspeak(BIRD_PINING)
+            DRAGON -> rspeak(
+                if (game.objectState[DRAGON].prop != DRAGON_BARS) RIDICULOUS_ATTEMPT
+                else NOTHING_EDIBLE
+            )
+            SNAKE -> if (!game.closed && game.here(BIRD)) {
+                game.destroy(BIRD)
+                rspeak(BIRD_DEVOURED)
+            } else {
+                rspeak(NOTHING_EDIBLE)
+            }
+            TROLL -> rspeak(TROLL_VICES)
+            DWARF -> if (game.here(FOOD)) {
+                game.dflag += 2
+                rspeak(REALLY_MAD)
+            } else {
+                speak(actions[verb].message)
+            }
+            BEAR -> when {
+                game.objectState[BEAR].prop == BEAR_DEAD -> rspeak(RIDICULOUS_ATTEMPT)
+                game.objectState[BEAR].prop == UNTAMED_BEAR -> if (game.here(FOOD)) {
+                    game.destroy(FOOD)
+                    game.objectState[AXE].fixed = IS_FREE
+                    game.objectState[AXE].prop = AXE_HERE
+                    stateChange(BEAR, SITTING_BEAR)
+                } else {
+                    rspeak(NOTHING_EDIBLE)
+                }
+                else -> speak(actions[verb].message)
+            }
+            OGRE -> if (game.here(FOOD)) rspeak(OGRE_FULL) else speak(actions[verb].message)
+            else -> rspeak(AM_GAME)
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `fill()`. The bottle or urn must be empty and liquid available. */
+    private fun fill(o: Int): Phase {
+        if (o == VASE) {
+            if (game.liqloc(game.loc) == NO_OBJECT) { rspeak(FILL_INVALID); return Phase.CLEAROBJ }
+            if (!game.toting(VASE)) { rspeak(ARENT_CARRYING); return Phase.CLEAROBJ }
+            rspeak(SHATTER_VASE)
+            game.objectState[VASE].prop = VASE_BROKEN
+            game.objectState[VASE].fixed = IS_FIXED
+            game.drop(VASE, game.loc)
+            return Phase.CLEAROBJ
+        }
+
+        if (o == URN) {
+            if (game.objectState[URN].prop != URN_EMPTY) { rspeak(FULL_URN); return Phase.CLEAROBJ }
+            if (!game.here(BOTTLE)) { rspeak(FILL_INVALID); return Phase.CLEAROBJ }
+            val k = game.liquid()
+            when (k) {
+                WATER -> {
+                    game.objectState[BOTTLE].prop = EMPTY_BOTTLE
+                    rspeak(WATER_URN)
+                }
+                OIL -> {
+                    game.objectState[URN].prop = URN_DARK
+                    game.objectState[BOTTLE].prop = EMPTY_BOTTLE
+                    rspeak(OIL_URN)
+                }
+                else -> { rspeak(FILL_INVALID); return Phase.CLEAROBJ }
+            }
+            game.objectState[k].place = LOC_NOWHERE
+            return Phase.CLEAROBJ
+        }
+
+        if (o != INTRANSITIVE && o != BOTTLE) {
+            speak(actions[verb].message)
+            return Phase.CLEAROBJ
+        }
+        if (o == INTRANSITIVE && !game.here(BOTTLE)) return Phase.UNKNOWN
+
+        if (game.here(URN) && game.objectState[URN].prop != URN_EMPTY) {
+            rspeak(URN_NOPOUR); return Phase.CLEAROBJ
+        }
+        if (game.liquid() != NO_OBJECT) { rspeak(BOTTLE_FULL); return Phase.CLEAROBJ }
+        if (game.liqloc(game.loc) == NO_OBJECT) { rspeak(NO_LIQUID); return Phase.CLEAROBJ }
+
+        stateChange(BOTTLE, if (game.liqloc(game.loc) == OIL) OIL_BOTTLE else WATER_BOTTLE)
+        if (game.toting(BOTTLE)) game.objectState[game.liquid()].place = CARRIED
+        return Phase.CLEAROBJ
+    }
+
+    /**
+     * Upstream `pour()`. With no object, or the bottle, assume its contents.
+     * Watering the plant cycles it through three states, which is the puzzle.
+     */
+    private fun pour(objIn: Int): Phase {
+        var o = objIn
+        if (o == BOTTLE || o == INTRANSITIVE) o = game.liquid()
+        if (o == NO_OBJECT) return Phase.UNKNOWN
+        if (!game.toting(o)) { speak(actions[verb].message); return Phase.CLEAROBJ }
+        if (o != OIL && o != WATER) { rspeak(CANT_POUR); return Phase.CLEAROBJ }
+        if (game.here(URN) && game.objectState[URN].prop == URN_EMPTY) return fill(URN)
+
+        game.objectState[BOTTLE].prop = EMPTY_BOTTLE
+        game.objectState[o].place = LOC_NOWHERE
+        if (!(game.at(PLANT) || game.at(DOOR))) { rspeak(GROUND_WET); return Phase.CLEAROBJ }
+        if (!game.at(DOOR)) {
+            return if (o == WATER) {
+                stateChange(PLANT, (game.objectState[PLANT].prop + 1) % 3)
+                game.objectState[PLANT2].prop = game.objectState[PLANT].prop
+                Phase.MOVE
+            } else {
+                rspeak(SHAKING_LEAVES)
+                Phase.CLEAROBJ
+            }
+        }
+        stateChange(DOOR, if (o == OIL) DOOR_UNRUSTED else DOOR_RUSTED)
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `quit()`. Verify intent before ending the game. */
+    private fun quit(): Phase {
+        if (yesOrNo(
+                arbitraryMessages[REALLY_QUIT],
+                arbitraryMessages[OK_MAN],
+                arbitraryMessages[OK_MAN],
+            )
+        ) {
+            terminate("quitgame")
+            return Phase.TERMINATE
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /**
+     * Upstream `listen()`. Intransitive only.
+     *
+     * The bird carries two parallel series of sounds depending on whether the
+     * player has drunk the dragon's blood, which is why its state gets 3 added
+     * to it here rather than going through state_change() like everything else.
+     * Upstream calls this "unpleasant magic"; it is load-bearing regardless.
+     */
+    private fun listen(): Phase {
+        var soundlatch = false
+        val sound = locations[game.loc].sound
+        if (sound != SILENT) {
+            rspeak(sound)
+            if (!locations[game.loc].loud) rspeak(NO_MESSAGE)
+            soundlatch = true
+        }
+        for (i in 1 until NOBJECTS) {
+            if (!game.here(i) || objects[i].sounds.isEmpty() ||
+                game.objectIsStashed(i) || game.objectIsNotFound(i)
+            ) continue
+            var mi = game.objectState[i].prop
+            if (i == BIRD) mi += 3 * (if (game.blooded) 1 else 0)
+            pspeak(i, SpeakType.HEAR, true, mi, game.zzword)
+            rspeak(NO_MESSAGE)
+            if (i == BIRD && mi == BIRD_ENDSTATE) game.destroy(BIRD)
+            soundlatch = true
+        }
+        if (!soundlatch) rspeak(ALL_SILENT)
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `throw_support()`: say something, then drop the axe and redescribe. */
+    private fun throwSupport(spk: Int): Phase {
+        rspeak(spk)
+        game.drop(AXE, game.loc)
+        return Phase.MOVE
+    }
+
+    /**
+     * Upstream `throwit()`. Same as discard unless it is the axe, in which case
+     * it is nearly attack -- and throwing the axe at a dwarf is the only way to
+     * kill one.
+     */
+    private fun throwit(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE || !game.toting(o)) {
+            speak(actions[verb].message)
+            return Phase.CLEAROBJ
+        }
+        if (objects[o].isTreasure && game.at(TROLL)) {
+            // Snarf a treasure for the troll.
+            game.drop(o, LOC_NOWHERE)
+            game.move(TROLL, LOC_NOWHERE)
+            game.move(TROLL + NOBJECTS, IS_FREE)
+            game.drop(TROLL2, objects[TROLL].plac)
+            game.drop(TROLL2 + NOBJECTS, objects[TROLL].fixd)
+            game.juggle(CHASM)
+            rspeak(TROLL_SATISFIED)
+            return Phase.CLEAROBJ
+        }
+        if (o == FOOD && game.here(BEAR)) {
+            // Throwing food is another story.
+            obj = BEAR
+            return feed(BEAR)
+        }
+        if (o != AXE) return discard(o)
+
+        if (game.atdwrf(game.loc) <= 0) {
+            if (game.at(DRAGON) && game.objectState[DRAGON].prop == DRAGON_BARS) {
+                return throwSupport(DRAGON_SCALES)
+            }
+            if (game.at(TROLL)) return throwSupport(TROLL_RETURNS)
+            if (game.at(OGRE)) return throwSupport(OGRE_DODGE)
+            if (game.here(BEAR) && game.objectState[BEAR].prop == UNTAMED_BEAR) {
+                // This'll teach him to throw the axe at the bear.
+                game.drop(AXE, game.loc)
+                game.objectState[AXE].fixed = IS_FIXED
+                game.juggle(BEAR)
+                stateChange(AXE, AXE_LOST)
+                return Phase.CLEAROBJ
+            }
+            obj = INTRANSITIVE
+            return attack(INTRANSITIVE)
+        }
+
+        return if (game.rng.randrange(NDWARVES + 1) < game.dflag) {
+            throwSupport(DWARF_DODGES)
+        } else {
+            val i = game.atdwrf(game.loc)
+            game.dwarves[i].seen = false
+            game.dwarves[i].loc = LOC_NOWHERE
+            throwSupport(if (++game.dkill == 1) DWARF_SMOKE else KILLED_DWARF)
+        }
+    }
+
+    /** Upstream `wake()`. Its only use is disturbing the dwarves. */
+    private fun wake(o: Int): Phase {
+        if (o != DWARF || !game.closed) {
+            speak(actions[verb].message)
+            return Phase.CLEAROBJ
+        }
+        rspeak(PROD_DWARF)
+        return notPorted() // upstream returns GO_DWARFWAKE
     }
 
     /** Upstream `wave()`. No effect unless waving the rod at the fissure or the bird. */

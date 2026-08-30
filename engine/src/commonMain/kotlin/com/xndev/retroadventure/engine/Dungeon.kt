@@ -842,7 +842,7 @@ val dwarflocs: IntArray = intArrayOf(LOC_KINGHALL, LOC_WESTBANK, LOC_Y2, LOC_ALI
 
 val arbitraryMessages: Array<String?> = arrayOf(
     null, // NO_MESSAGE
-    "Somewhere nearby is Colossal Cave, where others have found fortunes in\ntreasure and gold, though it is rumored that some who enter are never\nseen again.  Magic is said to work in the cave.  I will be your eyes\nand hands.  Direct me with commands of 1 or 2 words.  I should warn\nyou that I look at only the first five letters of each word, so you'll\nhave to enter \"northeast\" as \"ne\" to distinguish it from \"north\".\nYou can type \"help\" for some general hints.  For information on how\nto end your adventure, scoring, etc., type \"info\".\n\\t\\t\\t      - - -\nThis program was originally developed by Willie Crowther.  Most of the\nfeatures of the current program were added by Don Woods.", // CAVE_NEARBY
+    "Somewhere nearby is Colossal Cave, where others have found fortunes in\ntreasure and gold, though it is rumored that some who enter are never\nseen again.  Magic is said to work in the cave.  I will be your eyes\nand hands.  Direct me with commands of 1 or 2 words.  I should warn\nyou that I look at only the first five letters of each word, so you'll\nhave to enter \"northeast\" as \"ne\" to distinguish it from \"north\".\nYou can type \"help\" for some general hints.  For information on how\nto end your adventure, scoring, etc., type \"info\".\n\t\t\t      - - -\nThis program was originally developed by Willie Crowther.  Most of the\nfeatures of the current program were added by Don Woods.", // CAVE_NEARBY
     "A little dwarf with a big knife blocks your way.", // DWARF_BLOCK
     "A little dwarf just walked around a corner, saw you, threw a little\naxe at you which missed, cursed, and ran away.", // DWARF_RAN
     "There are %d threatening little dwarves in the room with you.", // DWARF_PACK
@@ -1400,7 +1400,7 @@ val objects: Array<Obj> = arrayOf(
         inventory = "Giant oyster  >GROAN!<",
         plac = LOC_NOWHERE, fixd = 0,
         isTreasure = false,
-        descriptions = listOf("There is an enormous oyster here with its shell tightly closed.", "Interesting.  There seems to be something written on the underside of\\nthe oyster."),
+        descriptions = listOf("There is an enormous oyster here with its shell tightly closed.", "Interesting.  There seems to be something written on the underside of\nthe oyster."),
         sounds = listOf("Even though it's an oyster, the critter's as tight-mouthed as a clam.", "It says the same thing it did before.  Hm, maybe it's a pun?"),
         texts = emptyList(),
         changes = emptyList(),
@@ -1490,7 +1490,7 @@ val objects: Array<Obj> = arrayOf(
         inventory = "*plant",
         plac = LOC_WESTPIT, fixd = -1,
         isTreasure = false,
-        descriptions = listOf("There is a tiny little plant in the pit, murmuring \"water, water, ...\"", "There is a 12-foot-tall beanstalk stretching up out of the pit,\\nbellowing \"WATER!! WATER!!\"", "There is a gigantic beanstalk stretching all the way up to the hole."),
+        descriptions = listOf("There is a tiny little plant in the pit, murmuring \"water, water, ...\"", "There is a 12-foot-tall beanstalk stretching up out of the pit,\nbellowing \"WATER!! WATER!!\"", "There is a gigantic beanstalk stretching all the way up to the hole."),
         sounds = listOf("The plant continues to ask plaintively for water.", "The plant continues to demand water.", "The plant now maintains a contented silence."),
         texts = emptyList(),
         changes = listOf("You've over-watered the plant!  It's shriveling up!  And now . . .", "The plant spurts into furious growth for a few seconds.", "The plant grows explosively, almost filling the bottom of the pit."),
@@ -1570,7 +1570,7 @@ val objects: Array<Obj> = arrayOf(
         inventory = "*chasm",
         plac = LOC_SWCHASM, fixd = LOC_NECHASM,
         isTreasure = false,
-        descriptions = listOf("A rickety wooden bridge extends across the chasm, vanishing into the\\nmist.  A notice posted on the bridge reads, \"Stop! Pay troll!\"", "The wreckage of a bridge (and a dead bear) can be seen at the bottom\\nof the chasm."),
+        descriptions = listOf("A rickety wooden bridge extends across the chasm, vanishing into the\nmist.  A notice posted on the bridge reads, \"Stop! Pay troll!\"", "The wreckage of a bridge (and a dead bear) can be seen at the bottom\nof the chasm."),
         sounds = emptyList(),
         texts = emptyList(),
         changes = listOf("", "Just as you reach the other side, the bridge buckles beneath the\nweight of the bear, which was still following you around.  You\nscrabble desperately for support, but as the bridge collapses you\nstumble back and fall into the chasm."),
@@ -1580,7 +1580,7 @@ val objects: Array<Obj> = arrayOf(
         inventory = "*troll",
         plac = LOC_SWCHASM, fixd = LOC_NECHASM,
         isTreasure = false,
-        descriptions = listOf("A burly troll stands by the bridge and insists you throw him a\\ntreasure before you may cross.", "The troll steps out from beneath the bridge and blocks your way.", ""),
+        descriptions = listOf("A burly troll stands by the bridge and insists you throw him a\ntreasure before you may cross.", "The troll steps out from beneath the bridge and blocks your way.", ""),
         sounds = listOf("The troll sounds quite adamant in his demand for a treasure.", "The troll sounds quite adamant in his demand for a treasure.", ""),
         texts = emptyList(),
         changes = listOf("", "", "The bear lumbers toward the troll, who lets out a startled shriek and\nscurries away.  The bear soon gives up the pursuit and wanders back."),
@@ -1603,7 +1603,7 @@ val objects: Array<Obj> = arrayOf(
         descriptions = listOf("There is a ferocious cave bear eyeing you from the far end of the room!", "There is a gentle cave bear sitting placidly in one corner.", "There is a contented-looking bear wandering about nearby.", ""),
         sounds = emptyList(),
         texts = emptyList(),
-        changes = listOf("", "The bear eagerly wolfs down your food, after which he seems to calm\\ndown considerably and even becomes rather friendly.", "", ""),
+        changes = listOf("", "The bear eagerly wolfs down your food, after which he seems to calm\ndown considerably and even becomes rather friendly.", "", ""),
     ),
     Obj( // 36: MESSAG
         words = listOf("messa"),
@@ -1633,7 +1633,7 @@ val objects: Array<Obj> = arrayOf(
         descriptions = listOf("There is a massive and somewhat battered vending machine here.  The\ninstructions on it read: \"Drop coins here to receive fresh batteries.\"", "There is a massive vending machine here, swung back to reveal a\nsouthward passage."),
         sounds = emptyList(),
         texts = listOf("\"Drop coins here to receive fresh batteries.\"", "\"Drop coins here to receive fresh batteries.\""),
-        changes = listOf("The vending machine swings back to block the passage.", "As you strike the vending machine, it pivots backward along with a\\nsection of wall, revealing a dark passage leading south."),
+        changes = listOf("The vending machine swings back to block the passage.", "As you strike the vending machine, it pivots backward along with a\nsection of wall, revealing a dark passage leading south."),
     ),
     Obj( // 39: BATTERY
         words = listOf("batte"),
@@ -1959,8 +1959,8 @@ val hints: Array<Hint> = arrayOf(
     Hint(number = 3, penalty = 2, turns = 8, question = "Are you trying to somehow deal with the snake?", hint = "You can't kill the snake, or drive it away, or avoid it, or anything\nlike that.  There is a way to get by, but you don't have the necessary\nresources right now."),
     Hint(number = 4, penalty = 4, turns = 75, question = "Do you need help getting out of the maze?", hint = "You can make the passages look less alike by dropping things."),
     Hint(number = 5, penalty = 5, turns = 25, question = "Are you trying to explore beyond the plover room?", hint = "There is a way to explore that region without having to worry about\nfalling into a pit.  None of the objects available is immediately\nuseful in discovering the secret."),
-    Hint(number = 6, penalty = 3, turns = 20, question = "Do you need help getting out of here?", hint = "Don't go west.\\n"),
-    Hint(number = 7, penalty = 2, turns = 8, question = "Are you wondering what to do here?", hint = "This section is quite advanced.  Find the cave first.\\n"),
+    Hint(number = 6, penalty = 3, turns = 20, question = "Do you need help getting out of here?", hint = "Don't go west.\n"),
+    Hint(number = 7, penalty = 2, turns = 8, question = "Are you wondering what to do here?", hint = "This section is quite advanced.  Find the cave first.\n"),
     Hint(number = 8, penalty = 2, turns = 25, question = "Would you like to be shown out of the forest?", hint = "Go east ten times.  If that doesn't get you out, then go south, then\nwest twice, then south."),
     Hint(number = 9, penalty = 4, turns = 10, question = "Do you need help dealing with the ogre?", hint = "There is nothing the presence of which will prevent you from defeating\nhim; thus it can't hurt to fetch everything you possibly can."),
     Hint(number = 10, penalty = 4, turns = 1, question = "You're missing only one other treasure.  Do you need help finding it?", hint = "Once you've found all the other treasures, it is no longer possible to\nlocate the one you're now missing."),
