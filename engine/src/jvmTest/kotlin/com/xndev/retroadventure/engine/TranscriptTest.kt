@@ -46,7 +46,7 @@ class TranscriptTest {
      * number today and a regression shows up immediately.
      */
     private val passBaseline = 0
-    private val lineBaseline = 65900
+    private val lineBaseline = 81800
 
     private fun runScript(log: File): String {
         val lines = log.readLines().iterator()

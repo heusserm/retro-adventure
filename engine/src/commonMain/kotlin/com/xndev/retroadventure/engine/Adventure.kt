@@ -244,39 +244,97 @@ class Adventure(
         }
 
         // Check the conditionals on this destination and any that follow it.
-        while (true) {
-            val condType = travel[te].condType
-            val condArg1 = travel[te].condArg1
-            val condArg2 = travel[te].condArg2
-            val ok = when {
-                condType == CondType.GOTO || condType == CondType.PCT ->
-                    condArg1 == 0 || game.rng.pct(condArg1)
-                condType == CondType.CARRY || condType == CondType.WITH ->
-                    game.toting(condArg1) || (condType == CondType.WITH && game.at(condArg1))
-                else -> game.objectState[condArg1].prop != condArg2
+        // The outer loop exists for special travel 2, which rewrites the entry
+        // and re-enters the conditional check -- upstream's "goto L12".
+        conditionals@ while (true) {
+            while (true) {
+                val condType = travel[te].condType
+                val condArg1 = travel[te].condArg1
+                val condArg2 = travel[te].condArg2
+                val ok = when {
+                    condType == CondType.GOTO || condType == CondType.PCT ->
+                        condArg1 == 0 || game.rng.pct(condArg1)
+                    condType == CondType.CARRY || condType == CondType.WITH ->
+                        game.toting(condArg1) || (condType == CondType.WITH && game.at(condArg1))
+                    else -> game.objectState[condArg1].prop != condArg2
+                }
+                if (ok) break
+                // Conditional failed: skip to the next non-matching destination.
+                var teTmp = te
+                do {
+                    if (travel[teTmp].stop) return // upstream BUGs here; a port should not crash a phone
+                    teTmp++
+                } while (traveleq(te, teTmp))
+                te = teTmp
             }
-            if (ok) break
-            // Conditional failed: skip to the next non-matching destination.
-            var teTmp = te
-            do {
-                if (travel[teTmp].stop) return // upstream BUGs here; a port should not crash a phone
-                teTmp++
-            } while (traveleq(te, teTmp))
-            te = teTmp
-        }
 
-        game.newloc = travel[te].destVal
-        when (travel[te].destType) {
-            DestType.GOTO -> return
-            DestType.SPEAK -> {
-                rspeak(game.newloc)
-                game.newloc = game.loc
-                return
-            }
-            DestType.SPECIAL -> {
-                out.line(); out.line("$NOT_PORTED special travel to ${game.newloc}")
-                game.newloc = game.loc
-                return
+            game.newloc = travel[te].destVal
+            when (travel[te].destType) {
+                DestType.GOTO -> return
+                DestType.SPEAK -> {
+                    rspeak(game.newloc)
+                    game.newloc = game.loc
+                    return
+                }
+                DestType.SPECIAL -> when (game.newloc) {
+                    1 -> {
+                        // Plover-alcove passage: you can carry only the emerald
+                        // through it. The travel table deliberately holds
+                        // "useless" entries for this passage that can never be
+                        // used for motion but can be spotted by "go back".
+                        game.newloc = if (game.loc == LOC_PLOVER) LOC_ALCOVE else LOC_PLOVER
+                        if (game.holdng > 1 || (game.holdng == 1 && !game.toting(EMERALD))) {
+                            game.newloc = game.loc
+                            rspeak(MUST_DROP)
+                        }
+                        return
+                    }
+                    2 -> {
+                        // Plover transport: drop the emerald so he is forced to
+                        // use the passage to get it out, then carry on as
+                        // though he had not been carrying it.
+                        game.drop(EMERALD, game.loc)
+                        var teTmp = te
+                        do {
+                            if (travel[teTmp].stop) return
+                            teTmp++
+                        } while (traveleq(te, teTmp))
+                        te = teTmp
+                        continue@conditionals
+                    }
+                    3 -> {
+                        // Troll bridge. Done as special motion only, so that the
+                        // dwarves do not wander across and meet the bear.
+                        if (game.objectState[TROLL].prop == TROLL_PAIDONCE) {
+                            // He has crossed since paying, so the troll steps
+                            // out and blocks him.
+                            pspeak(TROLL, SpeakType.LOOK, true, TROLL_PAIDONCE)
+                            game.objectState[TROLL].prop = TROLL_UNPAID
+                            game.destroy(TROLL2)
+                            game.move(TROLL2 + NOBJECTS, IS_FREE)
+                            game.move(TROLL, objects[TROLL].plac)
+                            game.move(TROLL + NOBJECTS, objects[TROLL].fixd)
+                            game.juggle(CHASM)
+                            game.newloc = game.loc
+                            return
+                        }
+                        game.newloc = objects[TROLL].plac + objects[TROLL].fixd - game.loc
+                        if (game.objectState[TROLL].prop == TROLL_UNPAID) {
+                            game.objectState[TROLL].prop = TROLL_PAIDONCE
+                        }
+                        if (!game.toting(BEAR)) return
+                        // The bear is too heavy for the bridge.
+                        stateChange(CHASM, BRIDGE_WRECKED)
+                        game.objectState[TROLL].prop = TROLL_GONE
+                        game.drop(BEAR, game.newloc)
+                        game.objectState[BEAR].fixed = IS_FIXED
+                        game.objectState[BEAR].prop = BEAR_DEAD
+                        game.oldlc2 = game.newloc
+                        croak()
+                        return
+                    }
+                    else -> return
+                }
             }
         }
     }
