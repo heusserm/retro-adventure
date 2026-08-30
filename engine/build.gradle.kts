@@ -1,10 +1,12 @@
 plugins {
     kotlin("multiplatform")
+    id("com.android.library")
     id("org.jetbrains.kotlinx.kover")
 }
 
 kotlin {
     jvm()
+    androidTarget()
     // iOS targets are here so the engine is proven to compile and test on
     // Kotlin/Native, not just the JVM. Android is deliberately absent: adding it
     // would make `:engine:jvmTest` require the Android SDK, and the engine has
@@ -28,4 +30,14 @@ tasks.withType<Test>().configureEach {
     // transcript's actual output can be written out and diffed.
     System.getProperty("retroadventure.dump")?.let { systemProperty("retroadventure.dump", it) }
     testLogging { showStandardStreams = true }
+}
+
+android {
+    namespace = "com.xndev.retroadventure.engine"
+    compileSdk = 35
+    defaultConfig { minSdk = 26 }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }

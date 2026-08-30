@@ -52,8 +52,18 @@ vendor/    open-adventure, vendored: adventure.yaml (the game data), the C
            and the upstream docs. Treat as read-only.
 ```
 
-`app/` and `iosApp/` do not exist yet. When they arrive, follow EncounterDeck's
-layout exactly — it is the same stack and the same two stores.
+app/       Compose Multiplatform UI: commonMain plus androidMain / iosMain /
+           desktopMain, following EncounterDeck's layout. The whole game is a
+           scrolling transcript and one text field.
+session/   The bridge from the engine's pull-based loop to a UI's push-based
+           one. Coroutines live here so engine/ stays dependency-free.
+```
+
+`iosApp/` (the Xcode wrapper) does not exist yet. Everything else builds:
+`:app:desktopTest` runs the real composables, `:app:assembleDebug` produces an
+APK, and the iOS targets compile.
+
+```
 
 ## The working loop
 
@@ -163,9 +173,8 @@ What is left, in order of what it would buy:
 - A handful of remaining diffs in ported paths; run the suite and read the
   scoreboard.
 
-`app/` and `iosApp/` still do not exist. The engine is ready for them: the
-`session/` bridge is proven on Kotlin/Native, so a Compose front end is the next
-real piece of work rather than a research question.
+`app/` exists and runs on desktop and Android; `iosApp/`, the Xcode wrapper, is
+the remaining piece before there is anything to submit.
 
 ## Traps
 
