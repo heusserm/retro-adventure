@@ -108,22 +108,24 @@ Done and verified:
 - **`Output.kt`** — `vspeak` and its `%d`/`%s`/`%S`/`%V` handling and the
   floor→ground swap.
 - **`GameState.kt`** — the game struct, `carry`/`drop`/`move`, `initialise`.
-- **`Adventure.kt`** — `describe_location`, `listobjects`, `playermove`, and
-  `action()`'s full intransitive/transitive/unknown dispatch including the word
-  shift, plus `carry`, `drop`, `inventory`, `light`, `extinguish`, `lock`
-  (open/close), `wave`, `seed` and `nothing`.
+- **`Adventure.kt`** — `describe_location`, `listobjects`, `playermove`,
+  `preprocess_command`, `do_move`, and `action()`'s full
+  intransitive/transitive/unknown dispatch including the word shift. Verbs:
+  `carry`, `drop`/`discard`, `inventory`, `light`, `extinguish`, `lock`
+  (open/close), `wave`, `attack`, `seed`, `nothing`.
+- **The dwarves, the pirate, and death** — `dwarfmove`, `spotted_by_pirate`,
+  `croak`.
+- **`session/`** — the UI bridge, proven on Kotlin/Native as well as the JVM.
 
-Not done: the rest of `actions.c` — `attack`, `rub`, `say`, `eat`, `feed`,
-`fill`, `pour`, `throw`, `read`, `listen`, `bigwords`, save/resume — and, more
-importantly, the **systems**: dwarf and pirate movement, death and
-resurrection, the cave-closing sequence, hints, and scoring. Unported verbs
-answer with the `NOT_PORTED` marker rather than failing silently.
+Not done: the rest of `actions.c` — `rub`, `say`, `eat`, `drink`, `feed`,
+`fill`, `pour`, `throw`, `read`, `listen`, `bigwords`, save/resume — and the
+remaining systems: the cave-closing sequence (`closecheck`), hints
+(`checkhints`), the lamp timer (`lampcheck`), and scoring. Unported verbs
+answer with the `NOT_PORTED` marker rather than failing silently, and
+`terminate()` prints one where the score should be.
 
-**The verb-shaped work is now the small half.** As of the last run the
-scoreboard shows a handful of transcripts blocked on a named verb and 88
-blocked in already-ported code, which is where the missing systems show up.
-Expect the next real jumps to come from `dwarfmove()`/`croak()` and the closing
-sequence, not from another verb.
+Nothing passes end to end yet and nothing will until scoring lands, because
+almost every script ends in a score. Watch the matching-prefix number instead.
 
 ## Traps
 

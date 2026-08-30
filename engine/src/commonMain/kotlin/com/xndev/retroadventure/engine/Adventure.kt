@@ -543,7 +543,7 @@ class Adventure(
      * input (WORD2). Getting them wrong inserts a room description after every
      * verb, which a transcript diff catches and a play-through does not.
      */
-    private enum class Phase { CLEAROBJ, TOP, EXECUTED, TERMINATE, WORD2, UNKNOWN, CHECKHINT }
+    private enum class Phase { CLEAROBJ, TOP, EXECUTED, TERMINATE, WORD2, UNKNOWN, CHECKHINT, MOVE }
 
     /** Upstream's `enum speechpart`. */
     private enum class Part { UNKNOWN, INTRANSITIVE, TRANSITIVE }
@@ -703,6 +703,7 @@ class Adventure(
                         QUIT -> Phase.TERMINATE
                         INVENTORY -> inven()
                         SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
+                        ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
                         DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
                             Phase.UNKNOWN
                         else -> notPorted()
@@ -727,6 +728,7 @@ class Adventure(
         EXTINGUISH -> extinguish(obj)
         LOCK, UNLOCK -> lock(obj)
         WAVE -> wave(obj)
+        ATTACK -> attack(obj)
         SEED -> {
             // Speaks the *action's* own message, not an arbitrary message --
             // actions carry a message field of their own and rspeak() would
@@ -1058,6 +1060,136 @@ class Adventure(
         return Phase.CLEAROBJ
     }
 
+    /**
+     * Upstream `silent_yes_or_no()`: same as yesOrNo but asks nothing itself.
+     * The dragon uses it -- "attack dragon" prints its own question first.
+     */
+    private fun silentYesOrNo(): Boolean {
+        while (true) {
+            val reply = getInput() ?: return false
+            if (reply.isEmpty()) { rspeak(PLEASE_ANSWER); continue }
+            val firstword = reply.trim().split(Regex("[ \t]+"))[0].lowercase()
+            when {
+                "yes".startsWith(firstword) || firstword.startsWith("y") -> return true
+                "no".startsWith(firstword) || firstword.startsWith("n") -> return false
+                else -> rspeak(PLEASE_ANSWER)
+            }
+        }
+    }
+
+    /**
+     * Upstream `attack()`. "Throw" links here for most objects.
+     *
+     * Targets fall into enemies (snake, dwarf, troll...) and others (bird,
+     * clam, machine); the command is ambiguous if two enemies are present, or
+     * no enemies and two others. The dragon branch is the famous one: insist
+     * and you win.
+     */
+    private fun attack(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            var changes = 0
+            if (game.atdwrf(game.loc) > 0) { o = DWARF; changes++ }
+            if (game.here(SNAKE)) { o = SNAKE; changes++ }
+            if (game.at(DRAGON) && game.objectState[DRAGON].prop == DRAGON_BARS) {
+                o = DRAGON; changes++
+            }
+            if (game.at(TROLL)) { o = TROLL; changes++ }
+            if (game.at(OGRE)) { o = OGRE; changes++ }
+            if (game.here(BEAR) && game.objectState[BEAR].prop == UNTAMED_BEAR) {
+                o = BEAR; changes++
+            }
+            if (o == INTRANSITIVE) {
+                // Low-priority targets. You cannot attack the bird or the
+                // machine by throwing the axe at it.
+                if (game.here(BIRD) && verb != THROW) { o = BIRD; changes++ }
+                if (game.here(VEND) && verb != THROW) { o = VEND; changes++ }
+                // Clam and oyster are both treated as the clam here; no harm.
+                if (game.here(CLAM) || game.here(OYSTER)) { o = CLAM; changes++ }
+            }
+            if (changes >= 2) return Phase.UNKNOWN
+        }
+
+        if (o == BIRD) {
+            if (game.closed) {
+                rspeak(UNHAPPY_BIRD)
+            } else {
+                game.destroy(BIRD)
+                rspeak(BIRD_DEAD)
+            }
+            return Phase.CLEAROBJ
+        }
+        if (o == VEND) {
+            stateChange(
+                VEND,
+                if (game.objectState[VEND].prop == VEND_BLOCKS) VEND_UNBLOCKS else VEND_BLOCKS
+            )
+            return Phase.CLEAROBJ
+        }
+        if (o == BEAR) {
+            when (game.objectState[BEAR].prop) {
+                UNTAMED_BEAR -> rspeak(BEAR_HANDS)
+                SITTING_BEAR -> rspeak(BEAR_CONFUSED)
+                CONTENTED_BEAR -> rspeak(BEAR_CONFUSED)
+                BEAR_DEAD -> rspeak(ALREADY_DEAD)
+            }
+            return Phase.CLEAROBJ
+        }
+        if (o == DRAGON && game.objectState[DRAGON].prop == DRAGON_BARS) {
+            rspeak(BARE_HANDS_QUERY)
+            if (!silentYesOrNo()) {
+                speak(arbitraryMessages[NASTY_DRAGON])
+                return Phase.MOVE
+            }
+            stateChange(DRAGON, DRAGON_DEAD)
+            game.objectState[RUG].prop = RUG_FLOOR
+            game.move(DRAGON + NOBJECTS, IS_FIXED)
+            game.move(RUG + NOBJECTS, IS_FREE)
+            game.move(DRAGON, LOC_SECRET5)
+            game.move(RUG, LOC_SECRET5)
+            game.drop(BLOOD, LOC_SECRET5)
+            for (i in 1 until NOBJECTS) {
+                if (game.objectState[i].place == objects[DRAGON].plac ||
+                    game.objectState[i].place == objects[DRAGON].fixd
+                ) {
+                    game.move(i, LOC_SECRET5)
+                }
+            }
+            game.loc = LOC_SECRET5
+            return Phase.MOVE
+        }
+        if (o == OGRE) {
+            rspeak(OGRE_DODGE)
+            if (game.atdwrf(game.loc) == 0) return Phase.CLEAROBJ
+            rspeak(KNIFE_THROWN)
+            game.destroy(OGRE)
+            var dwarves = 0
+            for (i in 1 until PIRATE) {
+                if (game.dwarves[i].loc == game.loc) {
+                    dwarves++
+                    game.dwarves[i].loc = LOC_LONGWEST
+                    game.dwarves[i].seen = false
+                }
+            }
+            rspeak(if (dwarves > 1) OGRE_PANIC1 else OGRE_PANIC2)
+            return Phase.CLEAROBJ
+        }
+
+        when (o) {
+            INTRANSITIVE -> rspeak(NO_TARGET)
+            CLAM, OYSTER -> rspeak(SHELL_IMPERVIOUS)
+            SNAKE -> rspeak(SNAKE_WARNING)
+            DWARF -> {
+                if (game.closed) return notPorted() // upstream returns GO_DWARFWAKE
+                rspeak(BARE_HANDS_QUERY)
+            }
+            DRAGON -> rspeak(ALREADY_DEAD)
+            TROLL -> rspeak(ROCKY_TROLL)
+            else -> speak(actions[verb].message)
+        }
+        return Phase.CLEAROBJ
+    }
+
     /** Upstream `wave()`. No effect unless waving the rod at the fissure or the bird. */
     private fun wave(o: Int): Phase {
         if (o != ROD || !game.toting(o) ||
@@ -1213,6 +1345,10 @@ class Adventure(
                     when (action()) {
                         Phase.TERMINATE -> return false
                         Phase.EXECUTED -> return true
+                        Phase.MOVE -> {
+                            playermove(NUL)
+                            return true
+                        }
                         Phase.TOP -> continue@outer
                         Phase.WORD2 -> {
                             // Shift the second word up and analyse it, keeping
