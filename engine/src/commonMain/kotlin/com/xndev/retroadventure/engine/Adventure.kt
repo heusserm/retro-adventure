@@ -994,6 +994,12 @@ class Adventure(
         BLAST -> { blast(); Phase.CLEAROBJ }
         LISTEN -> { speak(actions[verb].message); Phase.CLEAROBJ }
         NOTHING -> { rspeak(OK_MAN); Phase.CLEAROBJ }
+        SCORE -> { speak(actions[verb].message); Phase.CLEAROBJ }
+        // Verbs that only mean anything intransitively still answer when given
+        // an object, with their own message rather than a parser complaint:
+        // "foo bar" is "I don't know how.", not "I don't know that word".
+        QUIT, BRIEF, SAVE, RESUME, FEE, FIE, FOE, FOO, FUM ->
+            { speak(actions[verb].message); Phase.CLEAROBJ }
         BREAK -> vbreak(obj)
         FIND, INVENTORY -> find(obj)
         TAME, GO -> { speak(actions[verb].message); Phase.CLEAROBJ }

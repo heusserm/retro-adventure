@@ -45,8 +45,8 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 95
-    private val lineBaseline = 133700
+    private val passBaseline = 96
+    private val lineBaseline = 134100
 
     /**
      * Set -Dretroadventure.dump=<name> to write that transcript's actual output
@@ -127,6 +127,12 @@ class TranscriptTest {
             println("  %3d  %s".format(hits.size, cause))
             hits.take(3).forEach { println("         $it") }
             if (hits.size > 3) println("         ... and ${hits.size - 3} more")
+        }
+
+        if (failures.isNotEmpty()) {
+            println()
+            println("Not matching (${failures.size}): " +
+                failures.map { it.substringBefore(":") }.sorted().joinToString(", "))
         }
 
         assertTrue(
