@@ -55,6 +55,31 @@ vendor/    open-adventure, vendored: adventure.yaml (the game data), the C
 `app/` and `iosApp/` do not exist yet. When they arrive, follow EncounterDeck's
 layout exactly — it is the same stack and the same two stores.
 
+## The working loop
+
+Every change goes through this. It is not optional and it is not a
+nice-to-have -- this is a port whose entire claim to correctness is that the
+tests say so, so an unmeasured change is an unsupported claim.
+
+```bash
+./gradlew :engine:jvmTest :session:jvmTest      # must be green
+./gradlew koverXmlReport && python3 scripts/crap.py
+git commit && git push                          # push every commit, not in batches
+```
+
+Three standing rules:
+
+1. **Run the tests before every commit.** The transcript suite ratchets, so a
+   regression fails the build rather than showing up three commits later.
+2. **Look at coverage and CRAP, not just green.** Green here means "no worse
+   than last time"; it does not mean the code you just wrote is exercised.
+   Branch coverage is the honest number -- line coverage flatters this project
+   because the transcripts drive so many lines through so few branches.
+3. **Push after every commit.** Not at the end of a session.
+
+**Raise the baselines in `TranscriptTest` when the number goes up.** A ratchet
+that is never tightened is just a green light.
+
 ## Commands
 
 Requires **JDK 21**, and `pyyaml` for the generator (`python3 -m pip install
