@@ -45,8 +45,8 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 94
-    private val lineBaseline = 132500
+    private val passBaseline = 95
+    private val lineBaseline = 133700
 
     /**
      * Set -Dretroadventure.dump=<name> to write that transcript's actual output

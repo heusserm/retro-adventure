@@ -993,6 +993,7 @@ class Adventure(
         FLY -> fly(obj)
         BLAST -> { blast(); Phase.CLEAROBJ }
         LISTEN -> { speak(actions[verb].message); Phase.CLEAROBJ }
+        NOTHING -> { rspeak(OK_MAN); Phase.CLEAROBJ }
         BREAK -> vbreak(obj)
         FIND, INVENTORY -> find(obj)
         TAME, GO -> { speak(actions[verb].message); Phase.CLEAROBJ }
@@ -2373,7 +2374,13 @@ class Adventure(
                 if (closecheck()) return true
 
                 while (true) { // reprocess after a word shift, no new input
-                    if (word1.isEmpty) continue@input
+                    // No isEmpty shortcut here. get_command_input has already
+                    // rejected a genuinely empty line, but a line of only
+                    // spaces is not empty -- it tokenizes to an empty word,
+                    // which preprocess retypes as motion zero, and upstream
+                    // answers "I don't know how to apply that word here".
+                    // Skipping it silently also skips the turn, and the dwarves
+                    // desynchronize from there on.
 
                     // Test the id alone. preprocessCommand() has already
                     // retyped an unclassified word as a motion by this point,
