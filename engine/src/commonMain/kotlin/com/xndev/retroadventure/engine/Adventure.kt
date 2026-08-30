@@ -96,6 +96,27 @@ class Adventure(
         }
     }
 
+    /**
+     * Upstream `get_command_input()`. Loops until it has something worth
+     * calling a command.
+     *
+     * This wrapper is where the turn counter gets its meaning: a blank line and
+     * a rejected three-word command both consume input but neither counts as a
+     * turn. Counting every line instead put the final score's turn total one
+     * too high on nearly every transcript -- correct in every other respect, and
+     * wrong in the one number the player is graded on.
+     */
+    private fun getCommandInput(): String? {
+        while (true) {
+            val input = getInput() ?: return null
+            if (input.trim().split(Regex("[ \t]+")).filter { it.isNotEmpty() }.size > 2) {
+                rspeak(TWO_WORDS)
+                continue
+            }
+            if (input.isNotEmpty()) return input
+        }
+    }
+
     /** Upstream `yes_or_no()`. */
     private fun yesOrNo(question: String?, yesResponse: String?, noResponse: String?): Boolean {
         while (true) {
@@ -2219,7 +2240,7 @@ class Adventure(
 
                 checkhints()
 
-                val line = getInput() ?: return false
+                val line = getCommandInput() ?: return false
 
                 // Every input, check the "foobar" flag: if positive make it
                 // negative, if negative he skipped a word so reset it.
