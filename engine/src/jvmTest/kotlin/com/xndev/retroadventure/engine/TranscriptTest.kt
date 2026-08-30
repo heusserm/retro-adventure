@@ -46,7 +46,7 @@ class TranscriptTest {
      * number today and a regression shows up immediately.
      */
     private val passBaseline = 0
-    private val lineBaseline = 6700
+    private val lineBaseline = 12000
 
     private fun runScript(log: File): String {
         val lines = log.readLines().iterator()
@@ -132,7 +132,7 @@ class TranscriptTest {
         Regex("""\[not ported yet] (verb|bare object) ([^"\s]+)""").find(divergence)?.let {
             return "${it.groupValues[1]}: ${it.groupValues[2]}"
         }
-        if (divergence.contains("threw ")) return "crash"
+        if (divergence.startsWith("threw ")) return "crash"
         return "output mismatch (ported path)"
     }
 

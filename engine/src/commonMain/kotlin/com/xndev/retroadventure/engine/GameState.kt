@@ -129,6 +129,13 @@ class GameState {
     fun objectSetFound(obj: Int) { objectState[obj].prop = STATE_FOUND }
     fun objectSetNotFound(obj: Int) { objectState[obj].prop = STATE_NOTFOUND }
 
+    /** Upstream `OBJECT_STATE_EQUALS`: matches the stashed form of a state too. */
+    fun objectStateEquals(obj: Int, pval: Int): Boolean =
+        objectState[obj].prop == pval || objectState[obj].prop == -1 - pval
+
+    /** Upstream `GSTONE()`. */
+    fun gstone(obj: Int): Boolean = obj == EMERALD || obj == RUBY || obj == AMBER || obj == SAPPH
+
     fun liquid(): Int = when (objectState[BOTTLE].prop) {
         WATER_BOTTLE -> WATER
         OIL_BOTTLE -> OIL
@@ -155,7 +162,22 @@ class GameState {
             return
         }
         var temp = locs[where].atloc
-        while (link[temp] != obj) temp = link[temp]
+        var hops = 0
+        while (link[temp] != obj) {
+            temp = link[temp]
+            // Upstream walks this list without a bound because a caller that
+            // hands carry() an object that is not actually at `where` is a bug
+            // it does not have. A half-ported caller can, and the walk then
+            // spins on link[0] forever -- which hangs the test suite instead of
+            // failing it. The liquids are the trap: WATER and OIL are never on
+            // any location's list, and vcarry() has to map them to the BOTTLE
+            // before getting here.
+            if (temp == 0 || ++hops > NOBJECTS * 2) {
+                throw IllegalStateException(
+                    "carry($obj) at location $where: object is not on that location's list"
+                )
+            }
+        }
         link[temp] = link[obj]
     }
 

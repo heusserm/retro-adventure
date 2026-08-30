@@ -69,8 +69,8 @@ python3 scripts/gen_dungeon.py     # regenerate Dungeon.kt from adventure.yaml
 
 ```
 Transcript suite: 0/103 transcripts match upstream exactly
-Matching prefix:  6744/134281 lines (5%), 4 savegame tests skipped
-  axebear: line 40: expected "Your lamp is now on." but got "[not ported yet] verb on"
+Matching prefix:  12061/134281 lines (8%), 4 savegame tests skipped
+  axebear: line 105: expected "The bird flies about agitatedly..." but got "The bird flies
 ```
 
 The first failing line of each transcript *is* the to-do list. Work the most
@@ -108,16 +108,22 @@ Done and verified:
 - **`Output.kt`** — `vspeak` and its `%d`/`%s`/`%S`/`%V` handling and the
   floor→ground swap.
 - **`GameState.kt`** — the game struct, `carry`/`drop`/`move`, `initialise`.
-- **`Adventure.kt`** — `describe_location`, `listobjects`, `playermove`,
-  `do_command`'s loop shape, and the verbs `seed`, `take`, `drop`, `inventory`.
+- **`Adventure.kt`** — `describe_location`, `listobjects`, `playermove`, and
+  `action()`'s full intransitive/transitive/unknown dispatch including the word
+  shift, plus `carry`, `drop`, `inventory`, `light`, `extinguish`, `lock`
+  (open/close), `wave`, `seed` and `nothing`.
 
-Not done: **most of `actions.c`** (1,677 lines), dwarf and pirate movement,
-death and resurrection, the closing sequence, scoring, hints, and save/resume.
-Unported verbs answer with the `NOT_PORTED` marker rather than failing silently,
-so a transcript diff points straight at the next one to write.
+Not done: the rest of `actions.c` — `attack`, `rub`, `say`, `eat`, `feed`,
+`fill`, `pour`, `throw`, `read`, `listen`, `bigwords`, save/resume — and, more
+importantly, the **systems**: dwarf and pirate movement, death and
+resurrection, the cave-closing sequence, hints, and scoring. Unported verbs
+answer with the `NOT_PORTED` marker rather than failing silently.
 
-The recommended order is whatever the scoreboard says is most common. Right now
-that is `on`/`off` (the lamp), then `open`/`close`, `attack`, `rub`.
+**The verb-shaped work is now the small half.** As of the last run the
+scoreboard shows a handful of transcripts blocked on a named verb and 88
+blocked in already-ported code, which is where the missing systems show up.
+Expect the next real jumps to come from `dwarfmove()`/`croak()` and the closing
+sequence, not from another verb.
 
 ## Traps
 
@@ -137,6 +143,22 @@ file's first commit.
 every seeded transcript diverge, which throws away the only oracle this project
 has. `set_seed` also burns five draws generating the bird's magic word before
 returning — a port that defers that work is off by five draws forever after.
+
+**`game.wzdark` is set once per input, not once per move.** Upstream refreshes
+it at the top of the input loop, and `light()` consults it to decide whether
+turning the lamp on should re-describe the room you just revealed. Leaving it
+out costs no error and no crash — the description simply never appears, which
+diverged 88 transcripts at the same line and read like a lamp bug.
+
+**Never hand `carry()` an object that is not on the location's list.** Water and
+oil are never placed at any location; `vcarry()` maps them onto the bottle
+first. Skip that and the link walk spins forever, which hangs the suite rather
+than failing it. `GameState.carry()` now throws instead, on purpose.
+
+**`timeout` does not exist on macOS.** `timeout 300 ./gradlew ...` fails
+instantly with "command not found", and if you are piping through `grep` you
+see nothing at all and conclude the build hung. Use `gtimeout` (coreutils) or
+just let Gradle run.
 
 **Blank lines are part of the output.** Upstream emits one before nearly every
 message and one before every prompt, and the `.chk` files record them. Tidying

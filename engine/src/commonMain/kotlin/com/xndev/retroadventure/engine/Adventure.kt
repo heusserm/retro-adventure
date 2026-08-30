@@ -28,6 +28,9 @@ const val PROMPT = "> "
 /** Emitted where upstream would run a verb this port has not reached yet. */
 const val NOT_PORTED = "[not ported yet]"
 
+/** How many forced moves in a row without input before we call it a loop. */
+const val FORCED_MOVE_LIMIT = 200
+
 class Adventure(
     private val input: InputSource,
     val out: Output = Output(),
@@ -77,6 +80,7 @@ class Adventure(
         while (true) {
             val line = input.readLine() ?: return null
             if (line.startsWith("#")) continue // comments in test scripts
+            inputsRead++
             val stripped = line.trimEnd('\n', '\r')
             out.raw(inputPrompt)
             out.line(stripped)
@@ -290,91 +294,472 @@ class Adventure(
     }
 
     /**
-     * Upstream's `phase_codes_t`, reduced to the codes the ported paths return.
-     * These are not cosmetic: they decide whether the next turn re-describes the
-     * location (TOP) or goes straight back to the prompt (CLEAROBJ). Getting
-     * that wrong inserts a room description after every verb, which is what a
-     * transcript diff catches and a play-through does not.
+     * Upstream's `phase_codes_t`. These are not cosmetic: they decide whether
+     * the next turn re-describes the location (TOP), goes straight back to the
+     * prompt (CLEAROBJ), or reprocesses the second word without reading new
+     * input (WORD2). Getting them wrong inserts a room description after every
+     * verb, which a transcript diff catches and a play-through does not.
      */
-    private enum class Phase { CLEAROBJ, TOP, EXECUTED, TERMINATE }
+    private enum class Phase { CLEAROBJ, TOP, EXECUTED, TERMINATE, WORD2, UNKNOWN, CHECKHINT }
+
+    /** Upstream's `enum speechpart`. */
+    private enum class Part { UNKNOWN, INTRANSITIVE, TRANSITIVE }
 
     /**
-     * A stand-in for upstream's `action()`. Only the verbs needed to walk
-     * around and handle objects are here; everything else says so out loud.
+     * Counts inputs consumed, so the loop can tell that it is spinning.
+     *
+     * A forced location moves the player without asking for input. If the move
+     * out of one lands back on itself -- which it can while special travel is
+     * unported -- the loop describes the room forever, consuming nothing. The
+     * real game cannot do this; a half-ported one can, and it hangs the test
+     * suite instead of failing it. The guard below turns that into a named
+     * error naming the location, which is a bug report rather than a timeout.
+     */
+    private var inputsRead = 0
+
+    private var part = Part.UNKNOWN
+    private var verb = 0
+    private var obj = NO_OBJECT
+
+    private fun clearCommand() {
+        word1 = EMPTY_WORD
+        word2 = EMPTY_WORD
+        part = Part.UNKNOWN
+        verb = 0
+        obj = NO_OBJECT
+    }
+
+    /** Upstream `state_change()`: set the state and announce the change. */
+    private fun stateChange(o: Int, state: Int) {
+        game.objectState[o].prop = state
+        pspeak(o, SpeakType.CHANGE, true, state)
+    }
+
+    /**
+     * Upstream `action()`.
+     *
+     * The three-way `part` split is the load-bearing structure, not decoration.
+     * "take lamp" arrives as an intransitive CARRY with a second word, which
+     * returns WORD2; the loop then re-enters with "lamp" as word one, `verb`
+     * still holding CARRY, and this function promotes the pair to transitive.
+     * That is how every two-word command in the game is resolved, so verbs are
+     * cheap to add once it is right.
      */
     private fun action(): Phase {
-        val verb = word1.id
-        when (verb) {
-            SEED -> {
-                // Note this speaks the *action's* own message, not an
-                // arbitrary message -- actions carry a message field of their
-                // own and rspeak() would index the wrong table entirely.
-                val n = word2.raw.toIntOrNull() ?: 0
-                speak(actions[SEED].message, n)
-                game.rng.setSeed(n)
-                game.turns--
-                return Phase.TOP
+        if (actions[verb].noAction) {
+            speak(actions[verb].message)
+            return Phase.CLEAROBJ
+        }
+
+        if (part == Part.UNKNOWN) {
+            // Analyse an object word: is the thing here, do we have a verb yet?
+            // Water and oil are funny -- they are never actually dropped at a
+            // location, but may be here in the bottle or as a feature of the
+            // room.
+            when {
+                game.here(obj) -> {}
+                obj == DWARF && game.atdwrf(game.loc) > 0 -> {}
+                !game.closed && ((game.liquid() == obj && game.here(BOTTLE)) ||
+                    obj == game.liqloc(game.loc)) -> {}
+                obj == OIL && game.here(URN) && game.objectState[URN].prop != URN_EMPTY ->
+                    obj = URN
+                obj == PLANT && game.at(PLANT2) &&
+                    game.objectState[PLANT2].prop != PLANT_THIRSTY -> obj = PLANT2
+                obj == KNIFE && game.knfloc == game.loc -> {
+                    game.knfloc = -1
+                    rspeak(KNIVES_VANISH)
+                    return Phase.CLEAROBJ
+                }
+                obj == ROD && game.here(ROD2) -> obj = ROD2
+                (verb == FIND || verb == INVENTORY) &&
+                    (word2.id == WORD_EMPTY || word2.id == WORD_NOT_FOUND) -> {}
+                else -> {
+                    sspeak(NO_SEE, word1.raw)
+                    return Phase.CLEAROBJ
+                }
             }
-            CARRY -> return doTake()
-            DROP -> return doDrop()
-            INVENTORY -> return doInventory()
-            QUIT -> return Phase.TERMINATE
+            if (verb != 0) part = Part.TRANSITIVE
         }
-        out.line(); out.line("$NOT_PORTED verb ${word1.raw}")
-        return Phase.CLEAROBJ
-    }
 
-    private fun doTake(): Phase {
-        val obj = if (word2.type == WordType.OBJECT) word2.id else INTRANSITIVE
-        if (obj == INTRANSITIVE) { rspeak(NO_CARRY); return Phase.CLEAROBJ }
-        if (game.toting(obj)) { rspeak(ALREADY_CARRYING); return Phase.CLEAROBJ }
-        if (!game.here(obj)) { rspeak(NO_CARRY); return Phase.CLEAROBJ }
-        if (game.objectState[obj].fixed != IS_FREE) { rspeak(YOU_JOKING); return Phase.CLEAROBJ }
-        if (game.holdng >= INVLIMIT) { rspeak(CARRY_LIMIT); return Phase.CLEAROBJ }
-        game.carry(obj, game.loc)
-        rspeak(OK_MAN)
-        return Phase.CLEAROBJ
-    }
-
-    private fun doDrop(): Phase {
-        val obj = if (word2.type == WordType.OBJECT) word2.id else INTRANSITIVE
-        if (obj == INTRANSITIVE || !game.toting(obj)) { rspeak(ARENT_CARRYING); return Phase.CLEAROBJ }
-        game.drop(obj, game.loc)
-        rspeak(OK_MAN)
-        return Phase.CLEAROBJ
-    }
-
-    private fun doInventory(): Phase {
-        var spk = NO_CARRY
-        for (i in 1 until NOBJECTS) {
-            if (i == BEAR || !game.toting(i)) continue
-            if (spk == NO_CARRY) rspeak(NOW_HOLDING)
-            pspeak(i, SpeakType.TOUCH, false, -1)
-            spk = 0
+        when (part) {
+            Part.INTRANSITIVE -> {
+                if (!word2.isEmpty && verb != SAY) return Phase.WORD2
+                if (verb == SAY) {
+                    // KEYS is not special; anything that is not NO_OBJECT or
+                    // INTRANSITIVE will do. This stops an unknown word being
+                    // read as an intransitive verb.
+                    obj = if (!word2.isEmpty) KEYS else NO_OBJECT
+                }
+                if (obj == NO_OBJECT || obj == INTRANSITIVE) {
+                    return when (verb) {
+                        CARRY -> vcarry(INTRANSITIVE)
+                        NOTHING -> { rspeak(OK_MAN); Phase.CLEAROBJ }
+                        UNLOCK, LOCK -> lock(INTRANSITIVE)
+                        LIGHT -> light(INTRANSITIVE)
+                        EXTINGUISH -> extinguish(INTRANSITIVE)
+                        GO -> { speak(actions[verb].message); Phase.CLEAROBJ }
+                        QUIT -> Phase.TERMINATE
+                        INVENTORY -> inven()
+                        SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
+                        DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
+                            Phase.UNKNOWN
+                        else -> notPorted()
+                    }
+                }
+                // An object turned up after all; fall through as transitive.
+                return transitive()
+            }
+            Part.TRANSITIVE -> return transitive()
+            Part.UNKNOWN -> {
+                // Unknown verb, couldn't deduce an object -- might need a hint.
+                sspeak(WHAT_DO, word1.raw)
+                return Phase.CHECKHINT
+            }
         }
-        if (game.toting(BEAR)) { rspeak(TAME_BEAR); spk = 0 }
-        if (spk == NO_CARRY) rspeak(spk)
+    }
+
+    private fun transitive(): Phase = when (verb) {
+        CARRY -> vcarry(obj)
+        DROP -> discard(obj)
+        LIGHT -> light(obj)
+        EXTINGUISH -> extinguish(obj)
+        LOCK, UNLOCK -> lock(obj)
+        WAVE -> wave(obj)
+        SEED -> {
+            // Speaks the *action's* own message, not an arbitrary message --
+            // actions carry a message field of their own and rspeak() would
+            // index the wrong table entirely.
+            val n = word2.raw.toIntOrNull() ?: 0
+            speak(actions[SEED].message, n)
+            game.rng.setSeed(n)
+            game.turns--
+            Phase.TOP
+        }
+        else -> notPorted()
+    }
+
+    /**
+     * Name the *verb*, not `word1.raw`. By the time a transitive verb gets here
+     * the word shift has already put the object in word one, so reporting the
+     * raw word blames "rod" for an unported "wave".
+     */
+    private fun notPorted(): Phase {
+        val name = actions.getOrNull(verb)?.words?.firstOrNull() ?: word1.raw
+        out.line()
+        out.line("$NOT_PORTED verb $name")
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `light()`. Applicable only to the lamp and the urn. */
+    private fun light(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            var selects = 0
+            if (game.here(LAMP) && game.objectState[LAMP].prop == LAMP_DARK && game.limit >= 0) {
+                o = LAMP; selects++
+            }
+            if (game.here(URN) && game.objectState[URN].prop == URN_DARK) {
+                o = URN; selects++
+            }
+            if (selects != 1) return Phase.UNKNOWN
+        }
+        when (o) {
+            URN -> stateChange(URN, if (game.objectState[URN].prop == URN_EMPTY) URN_EMPTY else URN_LIT)
+            LAMP -> {
+                if (game.limit < 0) {
+                    rspeak(LAMP_OUT)
+                } else {
+                    stateChange(LAMP, LAMP_BRIGHT)
+                    // Lighting the lamp in a room you entered in the dark means
+                    // you finally get to see it, so go round to describe it.
+                    if (game.wzdark) return Phase.TOP
+                }
+            }
+            else -> speak(actions[verb].message)
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `extinguish()`. Lamp, urn, and dragon/volcano (nice try). */
+    private fun extinguish(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            if (game.here(LAMP) && game.objectState[LAMP].prop == LAMP_BRIGHT) o = LAMP
+            if (game.here(URN) && game.objectState[URN].prop == URN_LIT) o = URN
+            if (o == INTRANSITIVE) return Phase.UNKNOWN
+        }
+        when (o) {
+            URN -> if (game.objectState[URN].prop != URN_EMPTY) {
+                stateChange(URN, URN_DARK)
+            } else {
+                pspeak(URN, SpeakType.CHANGE, true, URN_DARK)
+            }
+            LAMP -> {
+                stateChange(LAMP, LAMP_DARK)
+                rspeak(if (game.isDarkHere()) PITCH_DARK else NO_MESSAGE)
+            }
+            DRAGON, VOLCANO -> rspeak(BEYOND_POWER)
+            else -> speak(actions[verb].message)
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `lock()`, which serves both "open" and "close". */
+    private fun lock(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            if (game.here(CLAM)) o = CLAM
+            if (game.here(OYSTER)) o = OYSTER
+            if (game.at(DOOR)) o = DOOR
+            if (game.at(GRATE)) o = GRATE
+            if (game.here(CHAIN)) o = CHAIN
+            if (o == INTRANSITIVE) {
+                rspeak(NOTHING_LOCKED)
+                return Phase.CLEAROBJ
+            }
+        }
+        when (o) {
+            CHAIN -> if (game.here(KEYS)) return notPorted() else rspeak(NO_KEYS)
+            GRATE -> if (game.here(KEYS)) {
+                if (game.closng) {
+                    rspeak(EXIT_CLOSED)
+                    if (!game.panic) game.clock2 = PANICTIME
+                    game.panic = true
+                } else {
+                    stateChange(GRATE, if (verb == LOCK) GRATE_CLOSED else GRATE_OPEN)
+                }
+            } else {
+                rspeak(NO_KEYS)
+            }
+            CLAM -> when {
+                verb == LOCK -> rspeak(HUH_MAN)
+                game.toting(CLAM) -> rspeak(DROP_CLAM)
+                !game.toting(TRIDENT) -> rspeak(CLAM_OPENER)
+                else -> {
+                    game.destroy(CLAM)
+                    game.drop(OYSTER, game.loc)
+                    game.drop(PEARL, LOC_CULDESAC)
+                    rspeak(PEARL_FALLS)
+                }
+            }
+            OYSTER -> when {
+                verb == LOCK -> rspeak(HUH_MAN)
+                game.toting(OYSTER) -> rspeak(DROP_OYSTER)
+                !game.toting(TRIDENT) -> rspeak(OYSTER_OPENER)
+                else -> rspeak(OYSTER_OPENS)
+            }
+            DOOR -> rspeak(if (game.objectState[DOOR].prop == DOOR_UNRUSTED) OK_MAN else RUSTY_DOOR)
+            CAGE -> rspeak(NO_LOCK)
+            KEYS -> rspeak(CANNOT_UNLOCK)
+            else -> speak(actions[verb].message)
+        }
         return Phase.CLEAROBJ
     }
 
     /**
-     * Upstream `do_command()`. The two nested loops are upstream's and they
-     * matter: the outer one describes the location and lists what is here, the
-     * inner one takes commands until one of them actually moves the player.
-     * Collapsing them into a single loop re-describes the room after every
-     * verb.
+     * Upstream `vcarry()`. The liquids are the interesting part: water and oil
+     * are never on any location's object list, so they must be mapped onto the
+     * bottle before `carry()` sees them.
+     */
+    private fun vcarry(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            // Carry with no object given is OK only if exactly one thing is here.
+            if (game.locs[game.loc].atloc == NO_OBJECT ||
+                game.link[game.locs[game.loc].atloc] != 0 ||
+                game.atdwrf(game.loc) > 0
+            ) {
+                return Phase.UNKNOWN
+            }
+            o = game.locs[game.loc].atloc
+        }
+
+        if (game.toting(o)) { speak(actions[verb].message); return Phase.CLEAROBJ }
+
+        if (o == MESSAG) {
+            rspeak(REMOVE_MESSAGE)
+            game.destroy(MESSAG)
+            return Phase.CLEAROBJ
+        }
+
+        if (game.objectState[o].fixed != IS_FREE) {
+            when (o) {
+                PLANT -> rspeak(
+                    if (game.objectState[PLANT].prop == PLANT_THIRSTY || game.objectIsStashed(PLANT))
+                        DEEP_ROOTS else YOU_JOKING
+                )
+                BEAR -> rspeak(
+                    if (game.objectState[BEAR].prop == SITTING_BEAR) BEAR_CHAINED else YOU_JOKING
+                )
+                CHAIN -> rspeak(
+                    if (game.objectState[BEAR].prop != UNTAMED_BEAR) STILL_LOCKED else YOU_JOKING
+                )
+                RUG -> rspeak(
+                    if (game.objectState[RUG].prop == RUG_HOVER) RUG_HOVERS else YOU_JOKING
+                )
+                URN -> rspeak(URN_NOBUDGE)
+                CAVITY -> rspeak(DOUGHNUT_HOLES)
+                BLOOD -> rspeak(FEW_DROPS)
+                SIGN -> rspeak(HAND_PASSTHROUGH)
+                else -> rspeak(YOU_JOKING)
+            }
+            return Phase.CLEAROBJ
+        }
+
+        if (o == WATER || o == OIL) {
+            if (!game.here(BOTTLE) || game.liquid() != o) {
+                if (!game.toting(BOTTLE)) { rspeak(NO_CONTAINER); return Phase.CLEAROBJ }
+                if (game.objectState[BOTTLE].prop == EMPTY_BOTTLE) {
+                    return notPorted() // upstream calls fill(verb, BOTTLE)
+                }
+                rspeak(BOTTLE_FULL)
+                return Phase.CLEAROBJ
+            }
+            o = BOTTLE
+        }
+
+        if (game.holdng >= INVLIMIT) { rspeak(CARRY_LIMIT); return Phase.CLEAROBJ }
+
+        if (o == BIRD && game.objectState[BIRD].prop != BIRD_CAGED &&
+            !game.objectIsStashed(BIRD)
+        ) {
+            if (game.objectState[BIRD].prop == BIRD_FOREST_UNCAGED) {
+                game.destroy(BIRD)
+                rspeak(BIRD_CRAP)
+                return Phase.CLEAROBJ
+            }
+            if (!game.toting(CAGE)) { rspeak(CANNOT_CARRY); return Phase.CLEAROBJ }
+            if (game.toting(ROD)) { rspeak(BIRD_EVADES); return Phase.CLEAROBJ }
+            game.objectState[BIRD].prop = BIRD_CAGED
+        }
+        if ((o == BIRD || o == CAGE) && game.objectStateEquals(BIRD, BIRD_CAGED)) {
+            // This expression maps BIRD to CAGE and CAGE to BIRD.
+            game.carry(BIRD + CAGE - o, game.loc)
+        }
+
+        game.carry(o, game.loc)
+
+        if (o == BOTTLE && game.liquid() != NO_OBJECT) {
+            game.objectState[game.liquid()].place = CARRIED
+        }
+
+        if (game.gstone(o) && game.objectState[o].prop != STATE_FOUND) {
+            game.objectSetFound(o)
+            game.objectState[CAVITY].prop = CAVITY_EMPTY
+        }
+        rspeak(OK_MAN)
+        return Phase.CLEAROBJ
+    }
+
+    /** A cut-down `discard()`. */
+    private fun discard(objIn: Int): Phase {
+        if (objIn == INTRANSITIVE || !game.toting(objIn)) {
+            speak(actions[verb].message)
+            return Phase.CLEAROBJ
+        }
+        game.drop(objIn, game.loc)
+        rspeak(OK_MAN)
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `wave()`. No effect unless waving the rod at the fissure or the bird. */
+    private fun wave(o: Int): Phase {
+        if (o != ROD || !game.toting(o) ||
+            (!game.here(BIRD) && (game.closng || !game.at(FISSURE)))
+        ) {
+            speak(
+                if (!game.toting(o) && (o != ROD || !game.toting(ROD2)))
+                    arbitraryMessages[ARENT_CARRYING]
+                else
+                    actions[verb].message
+            )
+            return Phase.CLEAROBJ
+        }
+
+        if (game.objectState[BIRD].prop == BIRD_UNCAGED &&
+            game.loc == game.objectState[STEPS].place &&
+            game.objectIsNotFound(JADE)
+        ) {
+            game.drop(JADE, game.loc)
+            game.objectSetFound(JADE)
+            game.tally--
+            rspeak(NECKLACE_FLY)
+            return Phase.CLEAROBJ
+        }
+
+        if (game.closed) {
+            rspeak(if (game.objectState[BIRD].prop == BIRD_CAGED) CAGE_FLY else FREE_FLY)
+            return notPorted() // upstream returns GO_DWARFWAKE
+        }
+        if (game.closng || !game.at(FISSURE)) {
+            rspeak(if (game.objectState[BIRD].prop == BIRD_CAGED) CAGE_FLY else FREE_FLY)
+            return Phase.CLEAROBJ
+        }
+        if (game.here(BIRD)) {
+            rspeak(if (game.objectState[BIRD].prop == BIRD_CAGED) CAGE_FLY else FREE_FLY)
+        }
+        stateChange(
+            FISSURE,
+            if (game.objectState[FISSURE].prop == BRIDGED) UNBRIDGED else BRIDGED
+        )
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `inven()`. */
+    private fun inven(): Phase {
+        var empty = true
+        for (i in 1 until NOBJECTS) {
+            if (i == BEAR || !game.toting(i)) continue
+            if (empty) { rspeak(NOW_HOLDING); empty = false }
+            pspeak(i, SpeakType.TOUCH, false, -1)
+        }
+        if (game.toting(BEAR)) { rspeak(TAME_BEAR); empty = false }
+        if (empty) rspeak(NO_CARRY)
+        return Phase.CLEAROBJ
+    }
+
+    /**
+     * Upstream `do_command()`. The loop nesting is upstream's and it matters:
+     * the outer loop describes the location and lists what is here, the middle
+     * one takes commands until one actually moves the player, and the inner one
+     * reprocesses a shifted second word without reading new input. Collapsing
+     * any of them re-describes the room at the wrong time.
      */
     private fun doCommand(): Boolean {
-        while (true) { // command.state != EXECUTED
+        var spinGuard = inputsRead
+        var spins = 0
+        outer@ while (true) {
+            if (inputsRead == spinGuard) {
+                if (++spins > FORCED_MOVE_LIMIT) {
+                    throw IllegalStateException(
+                        "stuck in a forced-location loop at location ${game.loc}" +
+                            " after ${game.turns} turns; likely unported special travel"
+                    )
+                }
+            } else {
+                spinGuard = inputsRead
+                spins = 0
+            }
             describeLocation()
             if (game.forced(game.loc)) {
                 playermove(HERE)
                 return true
             }
             listObjects()
+            clearCommand()
 
-            var backToTop = false
-            while (!backToTop) { // command.state <= GIVEN
+            input@ while (true) {
+                // Whether the room was dark on entry. light() consults this to
+                // decide whether turning the lamp on should re-describe the
+                // room you have just revealed -- without it, the description
+                // never appears and 88 transcripts diverge at the same line.
+                game.wzdark = game.isDarkHere()
+
+                // If the knife is not here it permanently disappears.
+                if (game.knfloc > LOC_NOWHERE && game.knfloc != game.loc) {
+                    game.knfloc = LOC_NOWHERE
+                }
+
                 val line = getInput() ?: return false
 
                 // Every input, check the "foobar" flag: if positive make it
@@ -386,43 +771,70 @@ class Adventure(
                 word1 = w1
                 word2 = w2
 
-                if (word1.isEmpty) continue
+                while (true) { // reprocess after a word shift, no new input
+                    if (word1.isEmpty) continue@input
 
-                if (word1.id == WORD_NOT_FOUND && word1.type == WordType.NONE) {
-                    sspeak(DONT_KNOW, word1.raw)
-                    continue
-                }
-
-                // Nudge the player toward the shorter forms, as upstream does.
-                if (word1.raw.equals("west", ignoreCase = true)) {
-                    if (++game.iwest == 10) rspeak(W_IS_WEST)
-                }
-                if (word1.raw.equals("go", ignoreCase = true) && !word2.isEmpty) {
-                    if (++game.igo == 10) rspeak(GO_UNNEEDED)
-                }
-
-                when (word1.type) {
-                    WordType.MOTION -> {
-                        playermove(word1.id)
-                        return true
-                    }
-                    WordType.NUMERIC -> {
+                    if (word1.id == WORD_NOT_FOUND && word1.type == WordType.NONE) {
                         sspeak(DONT_KNOW, word1.raw)
-                        continue
+                        clearCommand()
+                        continue@input
                     }
-                    WordType.OBJECT -> {
-                        // "<object> <verb>" is a legal irregular form that
-                        // upstream's preprocess_command() rewrites. Not ported.
-                        out.line(); out.line("$NOT_PORTED bare object ${word1.raw}")
-                        continue
+
+                    // Nudge the player toward the shorter forms, as upstream does.
+                    if (word1.raw.equals("west", ignoreCase = true)) {
+                        if (++game.iwest == 10) rspeak(W_IS_WEST)
                     }
-                    WordType.ACTION -> when (action()) {
+                    if (word1.raw.equals("go", ignoreCase = true) && !word2.isEmpty) {
+                        if (++game.igo == 10) rspeak(GO_UNNEEDED)
+                    }
+
+                    when (word1.type) {
+                        WordType.MOTION -> {
+                            playermove(word1.id)
+                            return true
+                        }
+                        WordType.NUMERIC -> {
+                            sspeak(DONT_KNOW, word1.raw)
+                            clearCommand()
+                            continue@input
+                        }
+                        WordType.OBJECT -> {
+                            part = Part.UNKNOWN
+                            obj = word1.id
+                        }
+                        WordType.ACTION -> {
+                            part = if (word2.type == WordType.NUMERIC) Part.TRANSITIVE
+                                   else Part.INTRANSITIVE
+                            verb = word1.id
+                        }
+                        WordType.NONE -> continue@input
+                    }
+
+                    when (action()) {
                         Phase.TERMINATE -> return false
                         Phase.EXECUTED -> return true
-                        Phase.TOP -> backToTop = true
-                        Phase.CLEAROBJ -> {}
+                        Phase.TOP -> continue@outer
+                        Phase.WORD2 -> {
+                            // Shift the second word up and analyse it, keeping
+                            // `verb` -- this is how "take lamp" resolves.
+                            word1 = word2
+                            word2 = EMPTY_WORD
+                            continue
+                        }
+                        Phase.UNKNOWN -> {
+                            // Random intransitive verbs land here. Clear the
+                            // object just in case.
+                            val raw = word1.raw.replaceFirstChar { it.uppercaseChar() }
+                            sspeak(DO_WHAT, raw)
+                            obj = NO_OBJECT
+                            continue@input
+                        }
+                        Phase.CHECKHINT -> continue@input
+                        Phase.CLEAROBJ -> {
+                            clearCommand()
+                            continue@input
+                        }
                     }
-                    WordType.NONE -> continue
                 }
             }
         }
