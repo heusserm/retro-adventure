@@ -141,36 +141,31 @@ anything wrong. They are skipped by name in `TranscriptTest`.
 
 ## Porting status
 
-Done and verified:
+**86 of 103 transcripts match upstream byte for byte; 131,896 of 134,281 lines
+(98%).** Engine line coverage 99%, branch coverage 89%.
 
-- **`Dungeon.kt`** — all 185 locations, 70 objects, 213 messages, 878 travel ops.
-  Cross-checked field by field against upstream's generated `dungeon.c`: 878/878
-  travel ops identical, `tkey` identical, all 185 condition bitmasks identical,
-  702 symbol values with zero mismatches.
-- **`Rng.kt`** — the LCG, including the five draws `set_seed` burns on the
-  magic word.
-- **`Vocabulary.kt`** — 5-character truncated lookup, motion/object/action order.
-- **`Output.kt`** — `vspeak` and its `%d`/`%s`/`%S`/`%V` handling and the
-  floor→ground swap.
-- **`GameState.kt`** — the game struct, `carry`/`drop`/`move`, `initialise`.
-- **`Adventure.kt`** — `describe_location`, `listobjects`, `playermove`,
-  `preprocess_command`, `do_move`, and `action()`'s full
-  intransitive/transitive/unknown dispatch including the word shift. Verbs:
-  `carry`, `drop`/`discard`, `inventory`, `light`, `extinguish`, `lock`
-  (open/close), `wave`, `attack`, `seed`, `nothing`.
-- **The dwarves, the pirate, and death** — `dwarfmove`, `spotted_by_pirate`,
-  `croak`.
-- **`session/`** — the UI bridge, proven on Kotlin/Native as well as the JVM.
+Ported and verified: the generated data tables, the LCG, the vocabulary, the
+output pipeline, movement including special travel, the full `action()`
+dispatch, effectively all of `actions.c`, the dwarves and the pirate, death and
+resurrection, the cave-closing sequence, hints, the lamp timer, and scoring.
 
-Not done: the rest of `actions.c` — `rub`, `say`, `eat`, `drink`, `feed`,
-`fill`, `pour`, `throw`, `read`, `listen`, `bigwords`, save/resume — and the
-remaining systems: the cave-closing sequence (`closecheck`), hints
-(`checkhints`), the lamp timer (`lampcheck`), and scoring. Unported verbs
-answer with the `NOT_PORTED` marker rather than failing silently, and
-`terminate()` prints one where the score should be.
+What is left, in order of what it would buy:
 
-Nothing passes end to end yet and nothing will until scoring lands, because
-almost every script ends in a score. Watch the matching-prefix number instead.
+- **Save and resume are conversational only.** The prompts, the point charge and
+  the "can't open" path work; actually writing and reading a saved game does
+  not. Upstream serializes its `struct game_t` to a binary file, which is the
+  wrong shape for a phone anyway -- an app wants autosave to app storage, not a
+  filename prompt. `SaveStore` is the seam: implement it per platform. Four
+  transcripts want real round-tripping.
+- **`badmagic` cannot pass here.** It resumes from `../main.o`, a file that
+  exists only in upstream's own build directory, and expects the corrupt-save
+  message. It is testing C build layout, not game logic.
+- A handful of remaining diffs in ported paths; run the suite and read the
+  scoreboard.
+
+`app/` and `iosApp/` still do not exist. The engine is ready for them: the
+`session/` bridge is proven on Kotlin/Native, so a Compose front end is the next
+real piece of work rather than a research question.
 
 ## Traps
 

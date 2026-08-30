@@ -23,6 +23,23 @@ fun interface InputSource {
     fun readLine(): String?
 }
 
+/**
+ * Where suspended games live.
+ *
+ * The engine cannot open files -- it is compiled for three platforms and stays
+ * dependency-free -- so save and resume ask this instead. The default refuses
+ * every name, which is what the failure-path transcripts expect and what an app
+ * gets before it wires up its own storage. A phone would not prompt for a
+ * filename at all; it would autosave to app storage and hand back a fixed name.
+ */
+interface SaveStore {
+    fun openWrite(name: String): Boolean = false
+    fun openRead(name: String): Boolean = false
+}
+
+/** The default store: nothing can be opened. */
+object NoSaveStore : SaveStore
+
 const val PROMPT = "> "
 
 /** Emitted where upstream would run a verb this port has not reached yet. */
@@ -35,6 +52,7 @@ class Adventure(
     private val input: InputSource,
     val out: Output = Output(),
     private val prompt: Boolean = true,
+    private val saves: SaveStore = NoSaveStore,
 ) {
     val game = GameState()
 
@@ -759,7 +777,7 @@ class Adventure(
      * input (WORD2). Getting them wrong inserts a room description after every
      * verb, which a transcript diff catches and a play-through does not.
      */
-    private enum class Phase { CLEAROBJ, TOP, EXECUTED, TERMINATE, WORD2, UNKNOWN, CHECKHINT, MOVE }
+    private enum class Phase { CLEAROBJ, TOP, EXECUTED, TERMINATE, WORD2, UNKNOWN, CHECKHINT, MOVE, DWARFWAKE }
 
     /** Upstream's `enum speechpart`. */
     private enum class Part { UNKNOWN, INTRANSITIVE, TRANSITIVE }
@@ -933,6 +951,8 @@ class Adventure(
                         FLY -> fly(INTRANSITIVE)
                         BRIEF -> brief()
                         BLAST -> { blast(); Phase.CLEAROBJ }
+                        SAVE -> suspend()
+                        RESUME -> resume()
                         ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
                         DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
                             Phase.UNKNOWN
@@ -1286,7 +1306,7 @@ class Adventure(
             }
             if (game.here(SNAKE)) {
                 rspeak(BIRD_ATTACKS)
-                if (game.closed) return notPorted() // upstream returns GO_DWARFWAKE
+                if (game.closed) return Phase.DWARFWAKE
                 game.destroy(SNAKE)
                 // Set the state for use by the travel options.
                 game.objectState[SNAKE].prop = SNAKE_CHASED
@@ -1424,7 +1444,7 @@ class Adventure(
             CLAM, OYSTER -> rspeak(SHELL_IMPERVIOUS)
             SNAKE -> rspeak(SNAKE_WARNING)
             DWARF -> {
-                if (game.closed) return notPorted() // upstream returns GO_DWARFWAKE
+                if (game.closed) return Phase.DWARFWAKE
                 rspeak(BARE_HANDS_QUERY)
             }
             DRAGON -> rspeak(ALREADY_DEAD)
@@ -1714,7 +1734,7 @@ class Adventure(
             return Phase.CLEAROBJ
         }
         rspeak(PROD_DWARF)
-        return notPorted() // upstream returns GO_DWARFWAKE
+        return Phase.DWARFWAKE
     }
 
     /**
@@ -2042,6 +2062,75 @@ class Adventure(
         }
     }
 
+    /**
+     * Read a bare line, as upstream's `myreadline()` does for a file name.
+     *
+     * Note what is NOT echoed. With input redirected, libedit suppresses the
+     * prompt while reading, so the transcripts show no "File name:" before each
+     * attempt -- only the one upstream prints explicitly when the read returns
+     * end-of-input. Echoing on every read looks more helpful and fails the
+     * transcripts.
+     */
+    private fun readFileName(): String? {
+        val line = input.readLine()
+        if (line == null) {
+            out.line()
+            out.raw("File name: ")
+            return null
+        }
+        return line.trim()
+    }
+
+    /**
+     * Upstream `suspend()`. Costs 5 points, so a saved game cannot be used to
+     * retry a lost battle or to start over knowing the magic word.
+     */
+    private fun suspend(): Phase {
+        rspeak(SUSPEND_WARNING)
+        if (!yesOrNo(
+                arbitraryMessages[THIS_ACCEPTABLE],
+                arbitraryMessages[OK_MAN],
+                arbitraryMessages[OK_MAN],
+            )
+        ) return Phase.CLEAROBJ
+        game.saved += 5
+
+        while (true) {
+            val name = readFileName() ?: return Phase.TOP
+            if (name.isEmpty()) return Phase.TOP
+            if (saves.openWrite(name)) {
+                rspeak(RESUME_HELP)
+                finished = true
+                return Phase.TERMINATE
+            }
+            out.line("Can't open file $name, try again.")
+        }
+    }
+
+    /** Upstream `resume()`: read a suspended game back. */
+    private fun resume(): Phase {
+        if (game.loc != LOC_START || game.locs[LOC_START].abbrev != 1) {
+            rspeak(RESUME_ABANDON)
+            if (!yesOrNo(
+                    arbitraryMessages[THIS_ACCEPTABLE],
+                    arbitraryMessages[OK_MAN],
+                    arbitraryMessages[OK_MAN],
+                )
+            ) return Phase.CLEAROBJ
+        }
+        while (true) {
+            val name = readFileName() ?: return Phase.TOP
+            if (name.isEmpty()) return Phase.TOP
+            if (saves.openRead(name)) {
+                // Restoring the saved state itself is not ported: upstream
+                // reads back a binary struct, which is the wrong shape for a
+                // phone anyway. See AGENTS.md.
+                return notPorted()
+            }
+            out.line("Can't open file $name, try again.")
+        }
+    }
+
     /** Upstream `fly()`. Snide remarks unless the hovering rug is here. */
     private fun fly(objIn: Int): Phase {
         var o = objIn
@@ -2080,7 +2169,7 @@ class Adventure(
         when {
             o == MIRROR -> if (game.closed) {
                 stateChange(MIRROR, MIRROR_BROKEN)
-                return notPorted() // upstream returns GO_DWARFWAKE
+                return Phase.DWARFWAKE
             } else {
                 rspeak(TOO_FAR)
             }
@@ -2167,7 +2256,7 @@ class Adventure(
 
         if (game.closed) {
             rspeak(if (game.objectState[BIRD].prop == BIRD_CAGED) CAGE_FLY else FREE_FLY)
-            return notPorted() // upstream returns GO_DWARFWAKE
+            return Phase.DWARFWAKE
         }
         if (game.closng || !game.at(FISSURE)) {
             rspeak(if (game.objectState[BIRD].prop == BIRD_CAGED) CAGE_FLY else FREE_FLY)
@@ -2227,6 +2316,24 @@ class Adventure(
             clearCommand()
 
             input@ while (true) {
+                if (game.closed) {
+                    // At closing time, unstash anything being carried, so that
+                    // things are not described until they have been picked up
+                    // and put down away from their pile.
+                    if ((game.objectIsNotFound(OYSTER) || game.objectIsStashed(OYSTER)) &&
+                        game.toting(OYSTER)
+                    ) {
+                        pspeak(OYSTER, SpeakType.LOOK, true, 1)
+                    }
+                    for (i in 1 until NOBJECTS) {
+                        if (game.toting(i) &&
+                            (game.objectIsNotFound(i) || game.objectIsStashed(i))
+                        ) {
+                            game.objectState[i].prop = -1 - game.objectState[i].prop
+                        }
+                    }
+                }
+
                 // Whether the room was dark on entry. light() consults this to
                 // decide whether turning the lamp on should re-describe the
                 // room you have just revealed -- without it, the description
@@ -2303,6 +2410,12 @@ class Adventure(
                         Phase.MOVE -> {
                             playermove(NUL)
                             return true
+                        }
+                        Phase.DWARFWAKE -> {
+                            // He has disturbed the dwarves; that ends the game.
+                            rspeak(DWARVES_AWAKEN)
+                            terminate(Termination.ENDGAME)
+                            return false
                         }
                         Phase.TOP -> continue@outer
                         Phase.WORD2 -> {
