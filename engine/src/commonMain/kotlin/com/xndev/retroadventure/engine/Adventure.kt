@@ -991,6 +991,8 @@ class Adventure(
         PART -> reservoir()
         SAY -> say()
         FLY -> fly(obj)
+        BLAST -> { blast(); Phase.CLEAROBJ }
+        LISTEN -> { speak(actions[verb].message); Phase.CLEAROBJ }
         BREAK -> vbreak(obj)
         FIND, INVENTORY -> find(obj)
         TAME, GO -> { speak(actions[verb].message); Phase.CLEAROBJ }
@@ -2316,6 +2318,11 @@ class Adventure(
             clearCommand()
 
             input@ while (true) {
+                // blast() and the dwarf-wake ending terminate mid-turn. Upstream
+                // exits from there; the port has to stop asking for input or it
+                // prints a stray prompt after the final score.
+                if (finished) return false
+
                 if (game.closed) {
                     // At closing time, unstash anything being carried, so that
                     // things are not described until they have been picked up
