@@ -706,10 +706,14 @@ class Adventure(
                         DRINK -> drink(INTRANSITIVE)
                         FILL -> fill(INTRANSITIVE)
                         LISTEN -> listen()
+                        PART -> reservoir()
+                        SAY -> say()
+                        READ -> { obj = INTRANSITIVE; read(INTRANSITIVE) }
+                        FEE, FIE, FOE, FOO, FUM -> bigwords(word1.id)
                         INVENTORY -> inven()
                         SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
                         ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
-                        DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
+                        DROP, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
                             Phase.UNKNOWN
                         else -> notPorted()
                     }
@@ -741,6 +745,9 @@ class Adventure(
         POUR -> pour(obj)
         THROW -> throwit(obj)
         WAKE -> wake(obj)
+        RUB -> rub(obj)
+        READ -> read(obj)
+        PART -> reservoir()
         SEED -> {
             // Speaks the *action's* own message, not an arbitrary message --
             // actions carry a message field of their own and rspeak() would
@@ -1483,6 +1490,144 @@ class Adventure(
         }
         rspeak(PROD_DWARF)
         return notPorted() // upstream returns GO_DWARFWAKE
+    }
+
+    /**
+     * Upstream `reservoir()`: the Z'ZZZ magic word, which is recomputed from
+     * the seed at startup and so differs every game. Saying it away from the
+     * reservoir but at its bottom drowns you.
+     */
+    private fun reservoir(): Phase {
+        if (!game.at(RESER) && game.loc != LOC_RESBOTTOM) {
+            rspeak(NOTHING_HAPPENS)
+            return Phase.CLEAROBJ
+        }
+        stateChange(
+            RESER,
+            if (game.objectState[RESER].prop == WATERS_PARTED) WATERS_UNPARTED
+            else WATERS_PARTED
+        )
+        if (game.at(RESER)) return Phase.CLEAROBJ
+        game.oldlc2 = game.loc
+        game.newloc = LOC_NOWHERE
+        rspeak(NOT_BRIGHT)
+        return Phase.EXECUTED
+    }
+
+    /** Upstream `rub()`. Snide remarks, except for the lit urn. */
+    private fun rub(o: Int): Phase {
+        if (o == URN && game.objectState[URN].prop == URN_LIT) {
+            game.destroy(URN)
+            game.drop(AMBER, game.loc)
+            game.objectState[AMBER].prop = AMBER_IN_ROCK
+            game.tally--
+            game.drop(CAVITY, game.loc)
+            rspeak(URN_GENIES)
+        } else if (o != LAMP) {
+            rspeak(PECULIAR_NOTHING)
+        } else {
+            speak(actions[verb].message)
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `say()`: echo the second word, unless it is a magic word. */
+    private fun say(): Phase {
+        if (word2.type == WordType.MOTION &&
+            (word2.id == XYZZY || word2.id == PLUGH || word2.id == PLOVER)
+        ) return Phase.WORD2
+        if (word2.type == WordType.ACTION && word2.id == PART) return reservoir()
+        if (word2.type == WordType.ACTION &&
+            (word2.id == FEE || word2.id == FIE || word2.id == FOE ||
+                word2.id == FOO || word2.id == FUM)
+        ) return bigwords(word2.id)
+        sspeak(OKEY_DOKEY, word2.raw)
+        return Phase.CLEAROBJ
+    }
+
+    /**
+     * Upstream `bigwords()`: FEE FIE FOE FOO (and FUM). Only advances if given
+     * in order; the last word zips the eggs back to the giant room.
+     */
+    private fun bigwords(id: Int): Phase {
+        val foobar = if (game.foobar < 0) -game.foobar else game.foobar
+
+        // Only FEE can start the sequence.
+        if (foobar == WORD_EMPTY && (id == FIE || id == FOE || id == FOO || id == FUM)) {
+            rspeak(NOTHING_HAPPENS)
+            return Phase.CLEAROBJ
+        }
+
+        if ((foobar == WORD_EMPTY && id == FEE) || (foobar == FEE && id == FIE) ||
+            (foobar == FIE && id == FOE) || (foobar == FOE && id == FOO)
+        ) {
+            game.foobar = id
+            if (id != FOO) {
+                rspeak(OK_MAN)
+                return Phase.CLEAROBJ
+            }
+            game.foobar = WORD_EMPTY
+            if (game.objectState[EGGS].place == objects[EGGS].plac ||
+                (game.toting(EGGS) && game.loc == objects[EGGS].plac)
+            ) {
+                rspeak(NOTHING_HAPPENS)
+                return Phase.CLEAROBJ
+            }
+            // Bring the troll back if we steal the eggs from him before crossing.
+            if (game.objectState[EGGS].place == LOC_NOWHERE &&
+                game.objectState[TROLL].place == LOC_NOWHERE &&
+                game.objectState[TROLL].prop == TROLL_UNPAID
+            ) {
+                game.objectState[TROLL].prop = TROLL_PAIDONCE
+            }
+            when {
+                game.here(EGGS) -> pspeak(EGGS, SpeakType.LOOK, true, EGGS_VANISHED)
+                game.loc == objects[EGGS].plac -> pspeak(EGGS, SpeakType.LOOK, true, EGGS_HERE)
+                else -> pspeak(EGGS, SpeakType.LOOK, true, EGGS_DONE)
+            }
+            game.move(EGGS, objects[EGGS].plac)
+            return Phase.CLEAROBJ
+        }
+
+        // Sequence was started but is incorrect.
+        rspeak(if (game.seenbigwords) START_OVER else WELL_POINTLESS)
+        game.foobar = WORD_EMPTY
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `read()`. The oyster is the special case, as ever. */
+    private fun read(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            var matches = 0
+            var resolved = NO_OBJECT
+            for (i in 1 until NOBJECTS) {
+                if (game.here(i) && objects[i].texts.isNotEmpty() && !game.objectIsStashed(i)) {
+                    matches++
+                    if (matches == 1) resolved = i
+                }
+            }
+            if (matches != 1 || game.isDarkHere()) return Phase.UNKNOWN
+            o = resolved
+        }
+
+        when {
+            game.isDarkHere() -> sspeak(NO_SEE, word1.raw)
+            o == OYSTER -> when {
+                !game.toting(OYSTER) || !game.closed -> rspeak(DONT_UNDERSTAND)
+                !game.clshnt -> game.clshnt = yesOrNo(
+                    arbitraryMessages[CLUE_QUERY],
+                    arbitraryMessages[WAYOUT_CLUE],
+                    arbitraryMessages[OK_MAN],
+                )
+                // Not really a sound, but oh well.
+                else -> pspeak(OYSTER, SpeakType.HEAR, true, 1)
+            }
+            objects[o].texts.isEmpty() || game.objectIsNotFound(o) ->
+                speak(actions[verb].message)
+            else -> pspeak(o, SpeakType.STUDY, true, game.objectState[o].prop)
+        }
+        return Phase.CLEAROBJ
     }
 
     /** Upstream `wave()`. No effect unless waving the rod at the fissure or the bird. */
