@@ -236,9 +236,13 @@ defends the mark. "Retro Adventure" was chosen to sidestep that; do not rename
 toward the original without checking it in the New App dialog first, which per
 `~/Code/AppStoreListings/STATUS.md` is the only real test of a name.
 
-This repo's own license is not yet chosen. EncounterDeck uses PolyForm
-Noncommercial; that is compatible with BSD-2 upstream, but decide before the
-first public push.
+**This repo is PolyForm Noncommercial 1.0.0, like EncounterDeck**, with the same
+CLA in `CONTRIBUTING.md` reserving commercial rights to the author. Note the
+scope limit, which EncounterDeck does not have to think about: PolyForm covers
+*this port's* code only. The vendored Open Adventure material and the upstream
+rights this port derives from stay BSD-2-Clause for everyone, commercial use
+included -- a downstream license cannot claw back rights BSD already granted.
+Both `LICENSE` and `README.md` say so explicitly; keep it that way.
 
 ## Related conventions
 
