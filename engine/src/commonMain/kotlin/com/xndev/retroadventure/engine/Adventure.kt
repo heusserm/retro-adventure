@@ -707,13 +707,13 @@ class Adventure(
                         FILL -> fill(INTRANSITIVE)
                         LISTEN -> listen()
                         PART -> reservoir()
-                        SAY -> say()
+        SAY -> say()
                         READ -> { obj = INTRANSITIVE; read(INTRANSITIVE) }
                         FEE, FIE, FOE, FOO, FUM -> bigwords(word1.id)
                         INVENTORY -> inven()
                         SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
                         ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
-                        DROP, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
+                        DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
                             Phase.UNKNOWN
                         else -> notPorted()
                     }
@@ -748,6 +748,7 @@ class Adventure(
         RUB -> rub(obj)
         READ -> read(obj)
         PART -> reservoir()
+        SAY -> say()
         SEED -> {
             // Speaks the *action's* own message, not an arbitrary message --
             // actions carry a message field of their own and rspeak() would
@@ -767,7 +768,7 @@ class Adventure(
      * raw word blames "rod" for an unported "wave".
      */
     private fun notPorted(): Phase {
-        val name = actions.getOrNull(verb)?.words?.firstOrNull() ?: word1.raw
+        val name = actions.getOrNull(verb)?.words?.firstOrNull { it.length > 1 } ?: word1.raw
         out.line()
         out.line("$NOT_PORTED verb $name")
         return Phase.CLEAROBJ
@@ -932,9 +933,7 @@ class Adventure(
         if (o == WATER || o == OIL) {
             if (!game.here(BOTTLE) || game.liquid() != o) {
                 if (!game.toting(BOTTLE)) { rspeak(NO_CONTAINER); return Phase.CLEAROBJ }
-                if (game.objectState[BOTTLE].prop == EMPTY_BOTTLE) {
-                    return notPorted() // upstream calls fill(verb, BOTTLE)
-                }
+                if (game.objectState[BOTTLE].prop == EMPTY_BOTTLE) return fill(BOTTLE)
                 rspeak(BOTTLE_FULL)
                 return Phase.CLEAROBJ
             }
