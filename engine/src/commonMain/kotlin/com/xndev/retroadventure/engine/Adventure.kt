@@ -2343,6 +2343,11 @@ class Adventure(
 
         while (!finished) {
             if (!doMove()) continue
+            // A death that used up the last life terminates inside doMove.
+            // Upstream exits there and never reaches do_command; without this
+            // check the port asks for one more line and prints a stray prompt
+            // after the final score.
+            if (finished) break
             if (!doCommand()) break
         }
 

@@ -45,7 +45,7 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 72
+    private val passBaseline = 78
     private val lineBaseline = 131500
 
     /**
