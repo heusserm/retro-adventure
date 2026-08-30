@@ -62,8 +62,28 @@ Requires **JDK 21**, and `pyyaml` for the generator (`python3 -m pip install
 
 ```bash
 ./gradlew :engine:jvmTest          # the suite, including the transcript scoreboard
+./gradlew :session:jvmTest         # the UI bridge, JVM
+./gradlew :session:iosSimulatorArm64Test   # the same bridge on Kotlin/Native
 python3 scripts/gen_dungeon.py     # regenerate Dungeon.kt from adventure.yaml
+
+./gradlew koverXmlReport && python3 scripts/crap.py   # coverage, complexity, CRAP
 ```
+
+### Coverage, complexity and CRAP
+
+`scripts/crap.py` reports per-method cyclomatic complexity, line coverage and
+CRAP -- `comp^2 * (1 - cov)^3 + comp`, the metric that says complicated *and*
+untested is worse than either alone. The conventional danger line is 30.
+
+That metric earns its place on a port specifically. Nearly every method here is
+a transliteration of C that has to behave identically, so the risk is not ugly
+code, it is a branch nothing exercises being quietly wrong. Line coverage looks
+reassuring (95% on `engine/`) because the transcripts drive so much of it;
+branch coverage is the honest number, and it is where the ported-but-unproven
+paths show up.
+
+Kover does not emit JaCoCo's COMPLEXITY counter, so complexity is derived from
+branch counts the way JaCoCo derives it: one plus half the branches.
 
 `:engine:jvmTest` prints a scoreboard every run:
 
