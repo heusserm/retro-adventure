@@ -521,11 +521,11 @@ class Adventure(
         if (game.closng) {
             // Died during closing time. No resurrection.
             rspeak(DEATH_CLOSING)
-            terminate("endgame")
+            terminate(Termination.ENDGAME)
         } else if (!yesOrNo(query, yesResponse, arbitraryMessages[OK_MAN]) ||
             game.numdie == NDEATHS
         ) {
-            terminate("endgame")
+            terminate(Termination.ENDGAME)
         } else {
             game.objectState[WATER].place = LOC_NOWHERE
             game.objectState[OIL].place = LOC_NOWHERE
@@ -543,11 +543,140 @@ class Adventure(
         }
     }
 
-    /** Upstream `terminate()`, minus scoring, which is not ported. */
-    private fun terminate(reason: String) {
-        out.line()
-        out.line("$NOT_PORTED $reason scoring")
+    /** Upstream `enum termination`. */
+    enum class Termination { ENDGAME, QUITGAME, SCOREGAME }
+
+    /** Upstream `enum scorebonus`: how the endgame was reached. */
+    enum class Bonus { NONE, SPLATTER, DEFEAT, VICTORY }
+
+    /** Set by score(); the maximum achievable, needed by terminate(). */
+    private var mxscor = 0
+
+    /**
+     * Upstream `score()`.
+     *
+     * Treasures count only if they are in the building and unbroken, with two
+     * points just for having found each one. The rest is how far you got and
+     * how you finished, less deductions for hints, wasted turns and saves.
+     */
+    private fun score(mode: Termination): Int {
+        var score = 0
+        mxscor = 0
+
+        for (i in 1 until NOBJECTS) {
+            if (!objects[i].isTreasure) continue
+            if (objects[i].inventory != null) {
+                var k = 12
+                if (i == CHEST) k = 14
+                if (i > CHEST) k = 16
+                if (!game.objectIsStashed(i) && !game.objectIsNotFound(i)) score += 2
+                if (game.objectState[i].place == LOC_BUILDING &&
+                    game.objectState[i].prop == STATE_FOUND
+                ) score += k - 2
+                mxscor += k
+            }
+        }
+
+        score += (NDEATHS - game.numdie) * 10
+        mxscor += NDEATHS * 10
+        if (mode == Termination.ENDGAME) score += 4
+        mxscor += 4
+        if (game.dflag != 0) score += 25
+        mxscor += 25
+        if (game.closng) score += 25
+        mxscor += 25
+        if (game.closed) {
+            when (game.bonus) {
+                Bonus.NONE -> score += 10
+                Bonus.SPLATTER -> score += 25
+                Bonus.DEFEAT -> score += 30
+                Bonus.VICTORY -> score += 45
+            }
+        }
+        mxscor += 45
+
+        // Did he come to Witt's End as he should?
+        if (game.objectState[MAGAZINE].place == LOC_WITTSEND) score += 1
+        mxscor += 1
+
+        // Round it off.
+        score += 2
+        mxscor += 2
+
+        for (i in 0 until NHINTS) {
+            if (game.hintState[i].used) score -= hints[i].penalty
+        }
+        if (game.novice) score -= 5
+        if (game.clshnt) score -= 10
+        score -= game.trnluz + game.saved
+
+        if (mode == Termination.SCOREGAME) {
+            rspeak(GARNERED_POINTS, score, mxscor, game.turns, game.turns)
+        }
+        return score
+    }
+
+    /**
+     * Upstream `terminate()`. Ends the game and tells you how you did.
+     *
+     * Upstream calls exit() from inside here; a phone cannot, so this sets
+     * `finished` and the run loop unwinds instead.
+     */
+    private fun terminate(mode: Termination) {
+        val points = score(mode)
+
+        if (points + game.trnluz + 1 >= mxscor && game.trnluz != 0) rspeak(TOOK_LONG)
+        if (points + game.saved + 1 >= mxscor && game.saved != 0) rspeak(WITHOUT_SUSPENDS)
+        rspeak(TOTAL_SCORE, points, mxscor, game.turns, game.turns)
+
+        for (i in 1 until NCLASSES) {
+            if (classes[i].threshold >= points) {
+                speak(classes[i].message)
+                if (i < NCLASSES - 1) {
+                    val nxt = classes[i].threshold + 1 - points
+                    rspeak(NEXT_HIGHER, nxt, nxt)
+                } else {
+                    rspeak(NO_HIGHER)
+                }
+                finished = true
+                return
+            }
+        }
+        rspeak(OFF_SCALE)
         finished = true
+    }
+
+    /** Upstream `chain()`: do something to the bear's chain. */
+    private fun chain(): Phase {
+        if (verb != LOCK) {
+            if (game.objectState[BEAR].prop == UNTAMED_BEAR) {
+                rspeak(BEAR_BLOCKS); return Phase.CLEAROBJ
+            }
+            if (game.objectState[CHAIN].prop == CHAIN_HEAP) {
+                rspeak(ALREADY_UNLOCKED); return Phase.CLEAROBJ
+            }
+            game.objectState[CHAIN].prop = CHAIN_HEAP
+            game.objectState[CHAIN].fixed = IS_FREE
+            if (game.objectState[BEAR].prop != BEAR_DEAD) {
+                game.objectState[BEAR].prop = CONTENTED_BEAR
+            }
+            game.objectState[BEAR].fixed =
+                if (game.objectState[BEAR].prop == BEAR_DEAD) IS_FIXED else IS_FREE
+            rspeak(CHAIN_UNLOCKED)
+            return Phase.CLEAROBJ
+        }
+
+        if (game.objectState[CHAIN].prop != CHAIN_HEAP) {
+            rspeak(ALREADY_LOCKED); return Phase.CLEAROBJ
+        }
+        if (game.loc != objects[CHAIN].plac) {
+            rspeak(NO_LOCKSITE); return Phase.CLEAROBJ
+        }
+        game.objectState[CHAIN].prop = CHAIN_FIXED
+        if (game.toting(CHAIN)) game.drop(CHAIN, game.loc)
+        game.objectState[CHAIN].fixed = IS_FIXED
+        rspeak(CHAIN_LOCKED)
+        return Phase.CLEAROBJ
     }
 
     /** Upstream `do_move()`. */
@@ -770,6 +899,7 @@ class Adventure(
                         FEE, FIE, FOE, FOO, FUM -> bigwords(word1.id)
                         INVENTORY -> inven()
                         SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
+                        SCORE -> { score(Termination.SCOREGAME); Phase.CLEAROBJ }
                         ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
                         DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
                             Phase.UNKNOWN
@@ -901,7 +1031,7 @@ class Adventure(
             }
         }
         when (o) {
-            CHAIN -> if (game.here(KEYS)) return notPorted() else rspeak(NO_KEYS)
+            CHAIN -> if (game.here(KEYS)) return chain() else rspeak(NO_KEYS)
             GRATE -> if (game.here(KEYS)) {
                 if (game.closng) {
                     rspeak(EXIT_CLOSED)
@@ -1438,7 +1568,7 @@ class Adventure(
                 arbitraryMessages[OK_MAN],
             )
         ) {
-            terminate("quitgame")
+            terminate(Termination.QUITGAME)
             return Phase.TERMINATE
         }
         return Phase.CLEAROBJ

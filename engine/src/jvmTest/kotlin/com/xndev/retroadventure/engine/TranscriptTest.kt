@@ -45,8 +45,8 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 0
-    private val lineBaseline = 81800
+    private val passBaseline = 4
+    private val lineBaseline = 90600
 
     private fun runScript(log: File): String {
         val lines = log.readLines().iterator()

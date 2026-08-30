@@ -90,7 +90,7 @@ class GameState {
     var seenbigwords = false
     var trnluz = 0
     var turns = 0
-    var bonus = 0
+    var bonus = Adventure.Bonus.NONE
 
     val zzword: String get() = rng.zzword
 
