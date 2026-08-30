@@ -45,8 +45,15 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 4
-    private val lineBaseline = 90600
+    private val passBaseline = 39
+    private val lineBaseline = 90900
+
+    /**
+     * Set -Dretroadventure.dump=<name> to write that transcript's actual output
+     * next to the expected one, so a divergence can be diffed with real tools
+     * instead of squinted at through the summary line.
+     */
+    private val dumpName: String? = System.getProperty("retroadventure.dump")
 
     private fun runScript(log: File): String {
         val lines = log.readLines().iterator()
@@ -85,6 +92,11 @@ class TranscriptTest {
                 continue
             }
             val expected = chk.readText()
+
+            if (name == dumpName) {
+                File(testDir.parentFile, "$name.actual").writeText(actual)
+                println("dumped ${name}.actual next to ${name}.chk")
+            }
 
             val e = expected.lines()
             expectedLines += e.size

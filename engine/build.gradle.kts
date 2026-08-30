@@ -24,5 +24,8 @@ kotlin {
 // so it is a JVM-only test -- Kotlin/Native has no portable file access here.
 tasks.withType<Test>().configureEach {
     systemProperty("retroadventure.testdir", rootProject.file("vendor/open-adventure/tests").absolutePath)
+    // Forward -Dretroadventure.dump=<name> through to the test JVM so a single
+    // transcript's actual output can be written out and diffed.
+    System.getProperty("retroadventure.dump")?.let { systemProperty("retroadventure.dump", it) }
     testLogging { showStandardStreams = true }
 }

@@ -78,7 +78,15 @@ class Adventure(
         val inputPrompt = if (prompt) PROMPT else ""
         out.line() // upstream prints one blank line per input, before the comment loop
         while (true) {
-            val line = input.readLine() ?: return null
+            val line = input.readLine()
+            if (line == null) {
+                // At end of input upstream still emits the prompt it was about
+                // to read against -- readline() prints it before returning NULL.
+                // The transcripts record that bare "> " as the second-to-last
+                // line, so leaving it out fails every one of them at the end.
+                out.raw(inputPrompt)
+                return null
+            }
             if (line.startsWith("#")) continue // comments in test scripts
             inputsRead++
             val stripped = line.trimEnd('\n', '\r')
@@ -2017,5 +2025,10 @@ class Adventure(
             if (!doMove()) continue
             if (!doCommand()) break
         }
+
+        // Running out of input is a quit, not a silent stop: upstream falls out
+        // of the same loop straight into terminate(quitgame), so every
+        // transcript ends with a score.
+        if (!finished) terminate(Termination.QUITGAME)
     }
 }
