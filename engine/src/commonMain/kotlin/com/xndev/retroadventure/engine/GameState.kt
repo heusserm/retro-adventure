@@ -16,6 +16,7 @@ const val IS_FIXED = -1
 const val IS_FREE = 0
 const val STATE_NOTFOUND = -1
 const val STATE_FOUND = 0
+const val STATE_IN_CAVITY = 1   // state common to all the gemstones
 
 const val INVLIMIT = 7
 const val GAMELIMIT = 330
@@ -25,6 +26,8 @@ const val FLASHTIME = 50
 const val PANICTIME = 15
 const val INTRANSITIVE = -1
 const val PIRATE = NDWARVES
+const val DALTLC = LOC_NUGGET   // alternate dwarf location
+const val PIT_KILL_PROB = 35    // chance of dying from a fall in the dark
 
 class ObjectState {
     var fixed: Int = IS_FREE
@@ -206,6 +209,18 @@ class GameState {
     }
 
     fun destroy(obj: Int) = move(obj, LOC_NOWHERE)
+
+    /**
+     * Upstream `juggle()`: pick an object up and put it down again, purely to
+     * move it to the front of the list of things at its location. Cosmetic, but
+     * it changes the order things are described in, so transcripts notice.
+     */
+    fun juggle(obj: Int) {
+        val i = objectState[obj].place
+        val j = objectState[obj].fixed
+        move(obj, i)
+        move(obj + NOBJECTS, j)
+    }
 
     /** Upstream `atdwrf()`: index of the first dwarf here, ignoring the pirate. */
     fun atdwrf(where: Int): Int {

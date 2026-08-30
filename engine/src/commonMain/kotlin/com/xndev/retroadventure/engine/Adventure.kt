@@ -281,15 +281,258 @@ class Adventure(
         }
     }
 
-    /** Upstream `do_move()`, minus dwarf movement and death, which are not ported. */
+    /**
+     * Upstream `spotted_by_pirate()`. Only ever true for the pirate, who is the
+     * sixth "dwarf" and shares nothing with the others but the movement rules.
+     */
+    private fun spottedByPirate(i: Int): Boolean {
+        if (i != PIRATE) return false
+
+        // The pirate leaves you alone once the chest has been found.
+        if (game.loc == game.chloc || !game.objectIsNotFound(CHEST)) return true
+
+        var snarfed = 0
+        var movechest = false
+        var robplayer = false
+        for (treasure in 1 until NOBJECTS) {
+            if (!objects[treasure].isTreasure) continue
+            // The pirate will not take the pyramid from the plover room or the
+            // dark room -- too easy.
+            if (treasure == PYRAMID &&
+                (game.loc == objects[PYRAMID].plac || game.loc == objects[EMERALD].plac)
+            ) continue
+            if (game.toting(treasure) || game.here(treasure)) snarfed++
+            if (game.toting(treasure)) { movechest = true; robplayer = true }
+        }
+        // Force chest placement before the player finds the last treasure.
+        if (game.tally == 1 && snarfed == 0 &&
+            game.objectState[CHEST].place == LOC_NOWHERE &&
+            game.here(LAMP) && game.objectState[LAMP].prop == LAMP_BRIGHT
+        ) {
+            rspeak(PIRATE_SPOTTED)
+            movechest = true
+        }
+        // Order matters: the chest moves before the robbery, so that the chest
+        // is listed last at the maze location.
+        if (movechest) {
+            game.move(CHEST, game.chloc)
+            game.move(MESSAG, game.chloc2)
+            game.dwarves[PIRATE].loc = game.chloc
+            game.dwarves[PIRATE].oldloc = game.chloc
+            game.dwarves[PIRATE].seen = false
+        } else if (game.dwarves[PIRATE].oldloc != game.dwarves[PIRATE].loc && game.rng.pct(20)) {
+            // You get a hint of the pirate even when the chest does not move.
+            rspeak(PIRATE_RUSTLES)
+        }
+        if (robplayer) {
+            rspeak(PIRATE_POUNCES)
+            for (treasure in 1 until NOBJECTS) {
+                if (!objects[treasure].isTreasure) continue
+                if (treasure == PYRAMID &&
+                    (game.loc == objects[PYRAMID].plac || game.loc == objects[EMERALD].plac)
+                ) continue
+                if (game.at(treasure) && game.objectState[treasure].fixed == IS_FREE) {
+                    game.carry(treasure, game.loc)
+                }
+                if (game.toting(treasure)) game.drop(treasure, game.chloc)
+            }
+        }
+        return true
+    }
+
+    /**
+     * Upstream `dwarfmove()`. Returns true if the player survives.
+     *
+     * Note that this uses `game.newloc` as a scratch variable while scanning
+     * travel entries, long after `do_move()` has already copied it into
+     * `game.loc`. That looks like a bug and is not one -- keep it, because the
+     * RNG draws it makes are part of every seeded transcript.
+     */
+    private fun dwarfmove(): Boolean {
+        val tk = IntArray(21)
+
+        // Don't let the dwarves follow him into a pit or a wall. The whole mess
+        // activates the first time he reaches the Hall of Mists. Locations
+        // forbidden to the pirate are skipped so he can't steal the return toll
+        // and the dwarves can't meet the bear.
+        if (game.loc == LOC_NOWHERE || game.forced(game.loc) ||
+            game.cndbit(game.newloc, COND_NOARRR)
+        ) return true
+
+        if (game.dflag == 0) {
+            if (game.indeep(game.loc)) game.dflag = 1
+            return true
+        }
+
+        // On meeting the first dwarf, kill 0, 1 or 2 of the 5. Any survivor
+        // standing on the player is moved to the alternate location.
+        if (game.dflag == 1) {
+            if (!game.indeep(game.loc) ||
+                (game.rng.pct(95) && (!game.cndbit(game.loc, COND_NOBACK) || game.rng.pct(85)))
+            ) return true
+            game.dflag = 2
+            for (i in 1..2) {
+                val j = 1 + game.rng.randrange(NDWARVES - 1)
+                if (game.rng.pct(50)) game.dwarves[j].loc = 0
+            }
+            for (i in 1..NDWARVES - 1) {
+                if (game.dwarves[i].loc == game.loc) game.dwarves[i].loc = DALTLC
+                game.dwarves[i].oldloc = game.dwarves[i].loc
+            }
+            rspeak(DWARF_RAN)
+            game.drop(AXE, game.loc)
+            return true
+        }
+
+        // Full swing: move each dwarf at random, except that one who has seen
+        // us sticks with us. If they don't have to move, they attack.
+        game.dtotal = 0
+        var attack = 0
+        var stick = 0
+        for (i in 1..NDWARVES) {
+            if (game.dwarves[i].loc == 0) continue
+
+            // Fill tk with everywhere this dwarf might go.
+            var j = 1
+            var kk = tkey[game.dwarves[i].loc]
+            if (kk != 0) {
+                do {
+                    val destType = travel[kk].destType
+                    game.newloc = travel[kk].destVal
+                    val skip = destType != DestType.GOTO ||
+                        !game.indeep(game.newloc) ||
+                        game.newloc == game.dwarves[i].oldloc ||
+                        (j > 1 && game.newloc == tk[j - 1]) ||
+                        j >= tk.size - 1 ||
+                        game.newloc == game.dwarves[i].loc ||
+                        game.forced(game.newloc) ||
+                        (i == PIRATE && game.cndbit(game.newloc, COND_NOARRR)) ||
+                        travel[kk].noDwarves
+                    if (!skip) tk[j++] = game.newloc
+                } while (!travel[kk++].stop)
+            }
+            tk[j] = game.dwarves[i].oldloc
+            if (j >= 2) j--
+            j = 1 + game.rng.randrange(j)
+            game.dwarves[i].oldloc = game.dwarves[i].loc
+            game.dwarves[i].loc = tk[j]
+            game.dwarves[i].seen = (game.dwarves[i].seen && game.indeep(game.loc)) ||
+                (game.dwarves[i].loc == game.loc || game.dwarves[i].oldloc == game.loc)
+            if (!game.dwarves[i].seen) continue
+            game.dwarves[i].loc = game.loc
+            if (spottedByPirate(i)) continue
+
+            // This threatening little dwarf is in the room with him.
+            game.dtotal++
+            if (game.dwarves[i].oldloc == game.dwarves[i].loc) {
+                attack++
+                if (game.knfloc >= LOC_NOWHERE) game.knfloc = game.loc
+                if (game.rng.randrange(1000) < 95 * (game.dflag - 2)) stick++
+            }
+        }
+
+        if (game.dtotal == 0) return true
+        rspeak(if (game.dtotal == 1) DWARF_SINGLE else DWARF_PACK, game.dtotal)
+        if (attack == 0) return true
+        if (game.dflag == 2) game.dflag = 3
+        if (attack > 1) {
+            rspeak(THROWN_KNIVES, attack)
+            rspeak(if (stick > 1) MULTIPLE_HITS else if (stick == 1) ONE_HIT else NONE_HIT, stick)
+        } else {
+            rspeak(KNIFE_THROWN)
+            rspeak(if (stick != 0) GETS_YOU else MISSES_YOU)
+        }
+        if (stick == 0) return true
+        game.oldlc2 = game.loc
+        return false
+    }
+
+    /**
+     * Upstream `croak()`: "You're dead, Jim."
+     *
+     * Each death offers reincarnation. On acceptance everything carried is
+     * dropped where he died -- backwards, so the bird lands before the cage --
+     * except the lamp, which is turned off and left outside the building so he
+     * is not stranded. `oldloc` is zapped so he cannot simply retreat.
+     */
+    private fun croak() {
+        val query = obituaries[game.numdie].query
+        val yesResponse = obituaries[game.numdie].yesResponse
+        game.numdie++
+
+        if (game.closng) {
+            // Died during closing time. No resurrection.
+            rspeak(DEATH_CLOSING)
+            terminate("endgame")
+        } else if (!yesOrNo(query, yesResponse, arbitraryMessages[OK_MAN]) ||
+            game.numdie == NDEATHS
+        ) {
+            terminate("endgame")
+        } else {
+            game.objectState[WATER].place = LOC_NOWHERE
+            game.objectState[OIL].place = LOC_NOWHERE
+            if (game.toting(LAMP)) game.objectState[LAMP].prop = LAMP_DARK
+            for (jj in 1 until NOBJECTS) {
+                val i = NOBJECTS - jj
+                if (game.toting(i)) {
+                    // Always leave the lamp somewhere reachable aboveground.
+                    game.drop(i, if (i == LAMP) LOC_START else game.oldlc2)
+                }
+            }
+            game.oldloc = LOC_BUILDING
+            game.loc = LOC_BUILDING
+            game.newloc = LOC_BUILDING
+        }
+    }
+
+    /** Upstream `terminate()`, minus scoring, which is not ported. */
+    private fun terminate(reason: String) {
+        out.line()
+        out.line("$NOT_PORTED $reason scoring")
+        finished = true
+    }
+
+    /** Upstream `do_move()`. */
     private fun doMove(): Boolean {
+        // Can't leave the cave once it's closing, except by the main office.
         if (game.outside(game.newloc) && game.newloc != 0 && game.closng) {
             rspeak(EXIT_CLOSED)
             game.newloc = game.loc
             if (!game.panic) game.clock2 = PANICTIME
             game.panic = true
         }
+
+        // If a dwarf has seen him and comes from where he wants to go, the
+        // dwarf is blocking his way.
+        if (game.newloc != game.loc && !game.forced(game.loc) &&
+            !game.cndbit(game.loc, COND_NOARRR)
+        ) {
+            for (i in 1..NDWARVES - 1) {
+                if (game.dwarves[i].oldloc == game.newloc && game.dwarves[i].seen) {
+                    game.newloc = game.loc
+                    rspeak(DWARF_BLOCK)
+                    break
+                }
+            }
+        }
         game.loc = game.newloc
+
+        if (!dwarfmove()) croak()
+        if (finished) return true
+        if (game.loc == LOC_NOWHERE) {
+            croak()
+            if (finished) return true
+        }
+
+        // The easiest way to get killed is to fall into a pit in pitch darkness.
+        if (!game.forced(game.loc) && game.isDarkHere() && game.wzdark &&
+            game.rng.pct(PIT_KILL_PROB)
+        ) {
+            rspeak(PIT_FALL)
+            game.oldlc2 = game.loc
+            croak()
+            return false
+        }
         return true
     }
 
@@ -317,6 +560,9 @@ class Adventure(
      */
     private var inputsRead = 0
 
+    /** Set by terminate(); ends the run loop the way upstream's exit() does. */
+    private var finished = false
+
     private var part = Part.UNKNOWN
     private var verb = 0
     private var obj = NO_OBJECT
@@ -327,6 +573,62 @@ class Adventure(
         part = Part.UNKNOWN
         verb = 0
         obj = NO_OBJECT
+    }
+
+    /**
+     * Upstream `preprocess_command()`. Teases out the irregular input forms
+     * before the main analysis sees them: "enter water", object-then-verb
+     * ("rod wave"), bare "grate" as a direction, "water plant" as "pour water",
+     * and "cage bird" as "carry bird".
+     *
+     * Returns false when the command has already been fully handled and the
+     * loop should just go get another one.
+     */
+    private fun preprocessCommand(): Boolean {
+        if (word1.type == WordType.MOTION && word1.id == ENTER &&
+            (word2.id == STREAM || word2.id == WATER)
+        ) {
+            rspeak(if (game.liqloc(game.loc) == WATER) FEET_WET else WHERE_QUERY)
+            return false
+        }
+
+        if (word1.type == WordType.OBJECT) {
+            // From object-verb to verb-object form.
+            if (word2.type == WordType.ACTION) {
+                val stage = word1
+                word1 = word2
+                word2 = stage
+            }
+
+            if (word1.id == GRATE) {
+                var id = word1.id
+                if (game.loc == LOC_START || game.loc == LOC_VALLEY || game.loc == LOC_SLIT) {
+                    id = DEPRESSION
+                }
+                if (game.loc == LOC_COBBLE || game.loc == LOC_DEBRIS ||
+                    game.loc == LOC_AWKWARD || game.loc == LOC_BIRDCHAMBER ||
+                    game.loc == LOC_PITTOP
+                ) {
+                    id = ENTRANCE
+                }
+                word1 = word1.copy(id = id, type = WordType.MOTION)
+            }
+            if ((word1.id == WATER || word1.id == OIL) &&
+                (word2.id == PLANT || word2.id == DOOR)
+            ) {
+                if (game.at(word2.id)) {
+                    word2 = word1
+                    word1 = Word("pour", POUR, WordType.ACTION)
+                }
+            }
+            if (word1.id == CAGE && word2.id == BIRD && game.here(CAGE) && game.here(BIRD)) {
+                word1 = word1.copy(id = CARRY, type = WordType.ACTION)
+            }
+        }
+
+        // With no type for the first word, assume it is a motion.
+        if (word1.type == WordType.NONE) word1 = word1.copy(type = WordType.MOTION)
+        return true
     }
 
     /** Upstream `state_change()`: set the state and announce the change. */
@@ -651,14 +953,108 @@ class Adventure(
         return Phase.CLEAROBJ
     }
 
-    /** A cut-down `discard()`. */
+    /**
+     * Upstream `discard()`. "Throw" lands here for most objects too.
+     *
+     * The bird is the case that matters early: dropping it sets its state to
+     * uncaged, and `wave rod` later reads that state to decide whether the bird
+     * fetches the jade necklace. Stub this out and the necklace never appears,
+     * far away from anything that looks like a drop bug.
+     */
     private fun discard(objIn: Int): Phase {
-        if (objIn == INTRANSITIVE || !game.toting(objIn)) {
+        var o = objIn
+        if (o == ROD && !game.toting(ROD) && game.toting(ROD2)) o = ROD2
+
+        if (o == INTRANSITIVE || !game.toting(o)) {
             speak(actions[verb].message)
             return Phase.CLEAROBJ
         }
-        game.drop(objIn, game.loc)
+
+        if (game.gstone(o) && game.at(CAVITY) &&
+            game.objectState[CAVITY].prop != CAVITY_FULL
+        ) {
+            rspeak(GEM_FITS)
+            game.objectState[o].prop = STATE_IN_CAVITY
+            game.objectState[CAVITY].prop = CAVITY_FULL
+            if (game.here(RUG) &&
+                ((o == EMERALD && game.objectState[RUG].prop != RUG_HOVER) ||
+                    (o == RUBY && game.objectState[RUG].prop == RUG_HOVER))
+            ) {
+                when {
+                    o == RUBY -> rspeak(RUG_SETTLES)
+                    game.toting(RUG) -> rspeak(RUG_WIGGLES)
+                    else -> rspeak(RUG_RISES)
+                }
+                if (!game.toting(RUG) || o == RUBY) {
+                    var k = if (game.objectState[RUG].prop == RUG_HOVER) RUG_FLOOR else RUG_HOVER
+                    game.objectState[RUG].prop = k
+                    if (k == RUG_HOVER) k = objects[SAPPH].plac
+                    game.move(RUG + NOBJECTS, k)
+                }
+            }
+            game.drop(o, game.loc)
+            return Phase.CLEAROBJ
+        }
+
+        if (o == COINS && game.here(VEND)) {
+            game.destroy(COINS)
+            game.drop(BATTERY, game.loc)
+            pspeak(BATTERY, SpeakType.LOOK, true, FRESH_BATTERIES)
+            return Phase.CLEAROBJ
+        }
+
+        if (game.liquid() == o) o = BOTTLE
+        if (o == BOTTLE && game.liquid() != NO_OBJECT) {
+            game.objectState[game.liquid()].place = LOC_NOWHERE
+        }
+
+        if (o == BEAR && game.at(TROLL)) {
+            stateChange(TROLL, TROLL_GONE)
+            game.move(TROLL, LOC_NOWHERE)
+            game.move(TROLL + NOBJECTS, IS_FREE)
+            game.move(TROLL2, objects[TROLL].plac)
+            game.move(TROLL2 + NOBJECTS, objects[TROLL].fixd)
+            game.juggle(CHASM)
+            game.drop(o, game.loc)
+            return Phase.CLEAROBJ
+        }
+
+        if (o == VASE && game.loc != objects[PILLOW].plac) {
+            stateChange(VASE, if (game.at(PILLOW)) VASE_WHOLE else VASE_DROPPED)
+            if (game.objectState[VASE].prop != VASE_WHOLE) {
+                game.objectState[VASE].fixed = IS_FIXED
+            }
+            game.drop(o, game.loc)
+            return Phase.CLEAROBJ
+        }
+
+        if (o == CAGE && game.objectState[BIRD].prop == BIRD_CAGED) {
+            game.drop(BIRD, game.loc)
+        }
+
+        if (o == BIRD) {
+            if (game.at(DRAGON) && game.objectState[DRAGON].prop == DRAGON_BARS) {
+                rspeak(BIRD_BURNT)
+                game.destroy(BIRD)
+                return Phase.CLEAROBJ
+            }
+            if (game.here(SNAKE)) {
+                rspeak(BIRD_ATTACKS)
+                if (game.closed) return notPorted() // upstream returns GO_DWARFWAKE
+                game.destroy(SNAKE)
+                // Set the state for use by the travel options.
+                game.objectState[SNAKE].prop = SNAKE_CHASED
+            } else {
+                rspeak(OK_MAN)
+            }
+            game.objectState[BIRD].prop =
+                if (game.forest(game.loc)) BIRD_FOREST_UNCAGED else BIRD_UNCAGED
+            game.drop(o, game.loc)
+            return Phase.CLEAROBJ
+        }
+
         rspeak(OK_MAN)
+        game.drop(o, game.loc)
         return Phase.CLEAROBJ
     }
 
@@ -771,6 +1167,10 @@ class Adventure(
                 word1 = w1
                 word2 = w2
 
+                // Runs once per input, not once per word shift -- upstream puts
+                // it here for that reason.
+                if (!preprocessCommand()) continue@input
+
                 while (true) { // reprocess after a word shift, no new input
                     if (word1.isEmpty) continue@input
 
@@ -850,7 +1250,7 @@ class Adventure(
         )
         if (game.novice) game.limit = NOVICELIMIT
 
-        while (true) {
+        while (!finished) {
             if (!doMove()) continue
             if (!doCommand()) break
         }
