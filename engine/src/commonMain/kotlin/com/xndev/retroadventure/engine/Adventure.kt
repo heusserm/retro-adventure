@@ -33,11 +33,17 @@ fun interface InputSource {
  * filename at all; it would autosave to app storage and hand back a fixed name.
  */
 interface SaveStore {
-    fun openWrite(name: String): Boolean = false
-    fun openRead(name: String): Boolean = false
+    /** Persist [data] under [name]. Return false if it could not be written. */
+    fun write(name: String, data: String): Boolean = false
+
+    /** Return what was stored under [name], or null if there is nothing there. */
+    fun read(name: String): String? = null
+
+    /** Names of the saves that exist, newest first where that is knowable. */
+    fun list(): List<String> = emptyList()
 }
 
-/** The default store: nothing can be opened. */
+/** The default store: nothing can be saved or loaded. */
 object NoSaveStore : SaveStore
 
 const val PROMPT = "> "
@@ -2107,7 +2113,7 @@ class Adventure(
         while (true) {
             val name = readFileName() ?: return Phase.TOP
             if (name.isEmpty()) return Phase.TOP
-            if (saves.openWrite(name)) {
+            if (saves.write(name, game.snapshot())) {
                 rspeak(RESUME_HELP)
                 finished = true
                 return Phase.TERMINATE
@@ -2130,13 +2136,22 @@ class Adventure(
         while (true) {
             val name = readFileName() ?: return Phase.TOP
             if (name.isEmpty()) return Phase.TOP
-            if (saves.openRead(name)) {
-                // Restoring the saved state itself is not ported: upstream
-                // reads back a binary struct, which is the wrong shape for a
-                // phone anyway. See AGENTS.md.
-                return notPorted()
+            val data = saves.read(name)
+            if (data == null) {
+                out.line("Can't open file $name, try again.")
+                continue
             }
-            out.line("Can't open file $name, try again.")
+            try {
+                game.restore(data)
+            } catch (e: SaveFormatException) {
+                // A damaged or foreign save must not leave a half-restored
+                // game running -- restore() parses everything before it writes
+                // anything, so the game in progress is untouched here.
+                out.line()
+                out.line(e.message ?: "That saved game cannot be resumed.")
+                return Phase.TOP
+            }
+            return Phase.TOP
         }
     }
 

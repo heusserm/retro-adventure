@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -53,6 +54,61 @@ class GameSessionTest {
 
         val taken = assertNotNull(session.send("take lamp"))
         assertContains(taken, "OK")
+
+        session.close()
+    }
+
+    /**
+     * The opening line is a yes/no question, and anything else has to be
+     * refused out loud. A player who types a real command there -- "look" is
+     * the obvious one -- must not be met with silence.
+     */
+    @Test
+    fun anonYesNoAnswerToTheOpeningQuestionIsRefusedOutLoud() = runTest {
+        val session = GameSession(seed = 1)
+        session.start(scope())
+        val reply = assertNotNull(session.send("look"))
+        assertContains(reply, "Please answer the question.")
+        assertContains(reply, "Would you like instructions?")
+        session.close()
+    }
+
+    /**
+     * Save, walk somewhere else, restore, and confirm the game really went
+     * back -- not just that a snapshot was produced.
+     */
+    @Test
+    fun snapshotAndRestorePutTheGameBackWhereItWas() = runTest {
+        val session = GameSession(seed = 1)
+        session.start(scope())
+        session.send("n")
+
+        val atTheRoad = assertNotNull(session.snapshot())
+
+        val inside = assertNotNull(session.send("in"))
+        assertContains(inside, "You are inside a building")
+
+        assertNull(session.restoreFrom(atTheRoad), "restore reported an error")
+        val afterRestore = assertNotNull(session.send("look"))
+        assertContains(afterRestore, "standing at the end of a road")
+
+        session.close()
+    }
+
+    @Test
+    fun aDamagedSnapshotIsReportedAndChangesNothing() = runTest {
+        val session = GameSession(seed = 1)
+        session.start(scope())
+        session.send("n")
+        session.send("in")
+
+        val error = session.restoreFrom("not a saved game at all")
+        assertNotNull(error)
+        assertContains(error, "does not look like a saved game")
+
+        // Still inside the building: a refused restore must change nothing.
+        val look = assertNotNull(session.send("look"))
+        assertContains(look, "inside a building")
 
         session.close()
     }

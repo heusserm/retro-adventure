@@ -19,7 +19,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":engine"))
+            api(project(":engine"))
             implementation(project(":session"))
             implementation(compose.runtime)
             implementation(compose.foundation)

@@ -2866,6 +2866,7 @@ arbitrary_messages:  !!omap
       \t\t\t      - - -
       This program was originally developed by Willie Crowther.  Most of the
       features of the current program were added by Don Woods.
+      Porting to Mobile was led by Matthew Heusser.
 - DWARF_BLOCK: 'A little dwarf with a big knife blocks your way.'
 - DWARF_RAN: |-
       A little dwarf just walked around a corner, saw you, threw a little

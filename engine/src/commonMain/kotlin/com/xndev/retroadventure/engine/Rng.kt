@@ -20,11 +20,11 @@ const val LCG_M = 1048576
 class Lcg {
     /** Matches `game.lcg_x`; part of the saved-game state upstream. */
     var x: Int = 0
-        private set
+        internal set
 
     /** The bird's magic word, regenerated whenever the seed is set. */
     var zzword: String = ""
-        private set
+        internal set
 
     /**
      * Upstream `set_seed()`. Note that setting the seed immediately burns five

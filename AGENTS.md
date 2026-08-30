@@ -164,12 +164,16 @@ resurrection, the cave-closing sequence, hints, the lamp timer, and scoring.
 
 What is left, in order of what it would buy:
 
-- **Save and resume are conversational only.** The prompts, the point charge and
-  the "can't open" path work; actually writing and reading a saved game does
-  not. Upstream serializes its `struct game_t` to a binary file, which is the
-  wrong shape for a phone anyway -- an app wants autosave to app storage, not a
-  filename prompt. `SaveStore` is the seam: implement it per platform. Four
-  transcripts want real round-tripping.
+- **Save and restore work, two ways.** The app's buttons go through
+  `GameSession.snapshot()` / `restoreFrom()`, which read the state between turns
+  -- safe because receiving a turn's output is the synchronization point, after
+  which the engine is parked on the input channel. The game's own `save` verb
+  still behaves as upstream does, which includes *exiting after saving*: correct
+  for a 1977 terminal, wrong for a phone, which is why the buttons do not use
+  it. Storage is `SaveStore`, implemented per platform in `app/`.
+  `SaveFormat.kt` is a plain text format, version-guarded, that refuses a
+  foreign or damaged save rather than half-loading one. The `saveresume.*`
+  transcripts still fail: they want upstream's raw binary struct.
 - **`badmagic` cannot pass here.** It resumes from `../main.o`, a file that
   exists only in upstream's own build directory, and expects the corrupt-save
   message. It is testing C build layout, not game logic.
@@ -218,6 +222,17 @@ than failing it. `GameState.carry()` now throws instead, on purpose.
 instantly with "command not found", and if you are piping through `grep` you
 see nothing at all and conclude the build hung. Use `gtimeout` (coreutils) or
 just let Gradle run.
+
+**Do not reflow the engine's output.** The game text was wrapped for a
+70-column terminal and reads badly on a phone, but the fix belongs in the app:
+`Reflow.kt` unwraps it for display only. Touching the engine's line breaks
+destroys the transcript oracle for a cosmetic gain.
+
+**One transcript differs on purpose.** The instructions carry an added porting
+credit, so `illformed` -- the only transcript that answers "y" and prints them
+-- can never match upstream again. `TranscriptTest.divergesByDesign` records it
+with the reason. Do not fold a real failure into that map to make the build go
+green; it exists so a deliberate choice cannot be confused with a regression.
 
 **Blank lines are part of the output.** Upstream emits one before nearly every
 message and one before every prompt, and the `.chk` files record them. Tidying
