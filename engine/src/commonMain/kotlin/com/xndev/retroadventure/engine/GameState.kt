@@ -28,6 +28,7 @@ const val INTRANSITIVE = -1
 const val PIRATE = NDWARVES
 const val DALTLC = LOC_NUGGET   // alternate dwarf location
 const val PIT_KILL_PROB = 35    // chance of dying from a fall in the dark
+const val BATTERYLIFE = 2500    // turns the fresh batteries add to the lamp
 
 class ObjectState {
     var fixed: Int = IS_FREE
@@ -209,6 +210,12 @@ class GameState {
     }
 
     fun destroy(obj: Int) = move(obj, LOC_NOWHERE)
+
+    /** Upstream `put()`: move an object somewhere and stash it so it cannot be taken. */
+    fun put(obj: Int, where: Int, pval: Int) {
+        move(obj, where)
+        objectState[obj].prop = -1 - pval
+    }
 
     /**
      * Upstream `juggle()`: pick an object up and put it down again, purely to

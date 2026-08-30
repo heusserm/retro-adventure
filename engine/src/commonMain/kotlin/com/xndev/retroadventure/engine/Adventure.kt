@@ -767,6 +767,8 @@ class Adventure(
         word2 = EMPTY_WORD
         part = Part.UNKNOWN
         verb = 0
+        // The bird hint reads oldobj, so the previous object survives the clear.
+        game.oldobj = obj
         obj = NO_OBJECT
     }
 
@@ -1832,6 +1834,193 @@ class Adventure(
         return Phase.CLEAROBJ
     }
 
+    /** Upstream `lampcheck()`: tick the lamp down and warn before it dies. */
+    private fun lampcheck() {
+        if (game.objectState[LAMP].prop == LAMP_BRIGHT) game.limit--
+
+        // When the lamp gets close to dying we warn him. Fresh batteries here
+        // replace it and carry on; otherwise he gets one warning and can still
+        // explore outside for a while after it goes out.
+        if (game.limit <= WARNTIME) {
+            if (game.here(BATTERY) &&
+                game.objectState[BATTERY].prop == FRESH_BATTERIES && game.here(LAMP)
+            ) {
+                rspeak(REPLACE_BATTERIES)
+                game.objectState[BATTERY].prop = DEAD_BATTERIES
+                game.limit += BATTERYLIFE
+                game.lmwarn = false
+            } else if (!game.lmwarn && game.here(LAMP)) {
+                game.lmwarn = true
+                rspeak(
+                    when {
+                        game.objectState[BATTERY].prop == DEAD_BATTERIES -> MISSING_BATTERIES
+                        game.objectState[BATTERY].place == LOC_NOWHERE -> LAMP_DIM
+                        else -> GET_BATTERIES
+                    }
+                )
+            }
+        }
+        if (game.limit == 0) {
+            game.limit = -1
+            game.objectState[LAMP].prop = LAMP_DARK
+            if (game.here(LAMP)) rspeak(LAMP_OUT)
+        }
+    }
+
+    /**
+     * Upstream `closecheck()`: the cave closes `clock1` turns after the last
+     * treasure is *located* -- not taken. When the first warning comes the grate
+     * locks, the bridge goes, every dwarf dies, and from then on he cannot leave
+     * or be resurrected. When clock2 runs out he is moved into the final puzzle.
+     */
+    private fun closecheck(): Boolean {
+        // Apply any turn-threshold penalty and say so.
+        for (i in 0 until NTHRESHOLDS) {
+            if (game.turns == turnThresholds[i].threshold + 1) {
+                game.trnluz += turnThresholds[i].pointLoss
+                speak(turnThresholds[i].message)
+            }
+        }
+
+        // clock1 only ticks well inside the cave, and not at Y2.
+        if (game.tally == 0 && game.indeep(game.loc) && game.loc != LOC_Y2) game.clock1--
+
+        if (game.clock1 == 0) {
+            game.objectState[GRATE].prop = GRATE_CLOSED
+            game.objectState[FISSURE].prop = UNBRIDGED
+            for (i in 1..NDWARVES) {
+                game.dwarves[i].seen = false
+                game.dwarves[i].loc = LOC_NOWHERE
+            }
+            game.destroy(TROLL)
+            game.move(TROLL + NOBJECTS, IS_FREE)
+            game.move(TROLL2, objects[TROLL].plac)
+            game.move(TROLL2 + NOBJECTS, objects[TROLL].fixd)
+            game.juggle(CHASM)
+            if (game.objectState[BEAR].prop != BEAR_DEAD) game.destroy(BEAR)
+            game.objectState[CHAIN].prop = CHAIN_HEAP
+            game.objectState[CHAIN].fixed = IS_FREE
+            game.objectState[AXE].prop = AXE_HERE
+            game.objectState[AXE].fixed = IS_FREE
+            rspeak(CAVE_CLOSING)
+            game.clock1 = -1
+            game.closng = true
+            return game.closed
+        } else if (game.clock1 < 0) {
+            game.clock2--
+        }
+
+        if (game.clock2 == 0) {
+            // Set up the storage room: two hardwired locations, everything he
+            // could cause trouble with dropped, and a flash of light.
+            game.put(BOTTLE, LOC_NE, EMPTY_BOTTLE)
+            game.put(PLANT, LOC_NE, PLANT_THIRSTY)
+            game.put(OYSTER, LOC_NE, STATE_FOUND)
+            game.put(LAMP, LOC_NE, LAMP_DARK)
+            game.put(ROD, LOC_NE, STATE_FOUND)
+            game.put(DWARF, LOC_NE, STATE_FOUND)
+            game.loc = LOC_NE
+            game.oldloc = LOC_NE
+            game.newloc = LOC_NE
+
+            // Leave the grate with a normal property. Reuse the sign.
+            game.move(GRATE, LOC_SW)
+            game.move(SIGN, LOC_SW)
+            game.objectState[SIGN].prop = ENDGAME_SIGN
+            game.put(SNAKE, LOC_SW, SNAKE_CHASED)
+            game.put(BIRD, LOC_SW, BIRD_CAGED)
+            game.put(CAGE, LOC_SW, STATE_FOUND)
+            game.put(ROD2, LOC_SW, STATE_FOUND)
+            game.put(PILLOW, LOC_SW, STATE_FOUND)
+
+            game.put(MIRROR, LOC_NE, STATE_FOUND)
+            game.objectState[MIRROR].fixed = LOC_SW
+
+            for (i in 1 until NOBJECTS) {
+                if (game.toting(i)) game.destroy(i)
+            }
+
+            rspeak(CAVE_CLOSED)
+            game.closed = true
+            return game.closed
+        }
+
+        lampcheck()
+        return false
+    }
+
+    /**
+     * Upstream `checkhints()`. Each hint has a location condition and a dwell
+     * count; stay long enough somewhere the hint applies and the game offers it,
+     * for a price. The per-hint guards below are upstream's, case for case.
+     */
+    private fun checkhints() {
+        if (game.conditions[game.loc] < game.conds) return
+        for (hint in 0 until NHINTS) {
+            if (game.hintState[hint].used) continue
+            if (!game.cndbit(game.loc, hint + 1 + COND_HBASE)) game.hintState[hint].lc = -1
+            game.hintState[hint].lc++
+            if (game.hintState[hint].lc < hints[hint].turns) continue
+
+            val offer = when (hint) {
+                0 -> // cave
+                    if (game.objectState[GRATE].prop == GRATE_CLOSED && !game.here(KEYS)) true
+                    else { game.hintState[hint].lc = 0; return }
+                1 -> // bird
+                    if (game.objectState[BIRD].place == game.loc && game.toting(ROD) &&
+                        game.oldobj == BIRD
+                    ) true else return
+                2 -> // snake
+                    if (game.here(SNAKE) && !game.here(BIRD)) true
+                    else { game.hintState[hint].lc = 0; return }
+                3 -> // maze
+                    if (game.locs[game.loc].atloc == NO_OBJECT &&
+                        game.locs[game.oldloc].atloc == NO_OBJECT &&
+                        game.locs[game.oldlc2].atloc == NO_OBJECT && game.holdng > 1
+                    ) true else { game.hintState[hint].lc = 0; return }
+                4 -> // dark
+                    if (!game.objectIsNotFound(EMERALD) && game.objectIsNotFound(PYRAMID)) true
+                    else { game.hintState[hint].lc = 0; return }
+                5 -> true // witt
+                6 -> // urn
+                    if (game.dflag == 0) true else { game.hintState[hint].lc = 0; return }
+                7 -> // woods
+                    if (game.locs[game.loc].atloc == NO_OBJECT &&
+                        game.locs[game.oldloc].atloc == NO_OBJECT &&
+                        game.locs[game.oldlc2].atloc == NO_OBJECT
+                    ) true else return
+                8 -> { // ogre
+                    val i = game.atdwrf(game.loc)
+                    if (i < 0) { game.hintState[hint].lc = 0; return }
+                    if (game.here(OGRE) && i == 0) true else return
+                }
+                9 -> // jade
+                    if (game.tally == 1 &&
+                        (game.objectIsStashed(JADE) || game.objectIsNotFound(JADE))
+                    ) true else { game.hintState[hint].lc = 0; return }
+                else -> return
+            }
+            if (!offer) return
+
+            game.hintState[hint].lc = 0
+            if (!yesOrNo(
+                    hints[hint].question,
+                    arbitraryMessages[NO_MESSAGE],
+                    arbitraryMessages[OK_MAN],
+                )
+            ) return
+            rspeak(HINT_COST, hints[hint].penalty, hints[hint].penalty)
+            game.hintState[hint].used = yesOrNo(
+                arbitraryMessages[WANT_HINT],
+                hints[hint].hint,
+                arbitraryMessages[OK_MAN],
+            )
+            if (game.hintState[hint].used && game.limit > WARNTIME) {
+                game.limit += WARNTIME * hints[hint].penalty
+            }
+        }
+    }
+
     /** Upstream `fly()`. Snide remarks unless the hovering rug is here. */
     private fun fly(objIn: Int): Phase {
         var o = objIn
@@ -2028,6 +2217,8 @@ class Adventure(
                     game.knfloc = LOC_NOWHERE
                 }
 
+                checkhints()
+
                 val line = getInput() ?: return false
 
                 // Every input, check the "foobar" flag: if positive make it
@@ -2042,6 +2233,9 @@ class Adventure(
                 // Runs once per input, not once per word shift -- upstream puts
                 // it here for that reason.
                 if (!preprocessCommand()) continue@input
+
+                // Check whether the cave is closing, and bail out if it closed.
+                if (closecheck()) return true
 
                 while (true) { // reprocess after a word shift, no new input
                     if (word1.isEmpty) continue@input
