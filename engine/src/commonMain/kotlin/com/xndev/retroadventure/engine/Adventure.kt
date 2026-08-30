@@ -902,12 +902,14 @@ class Adventure(
                         FILL -> fill(INTRANSITIVE)
                         LISTEN -> listen()
                         PART -> reservoir()
-        SAY -> say()
                         READ -> { obj = INTRANSITIVE; read(INTRANSITIVE) }
                         FEE, FIE, FOE, FOO, FUM -> bigwords(word1.id)
                         INVENTORY -> inven()
                         SEED, WASTE -> { rspeak(NUMERIC_REQUIRED); Phase.TOP }
                         SCORE -> { score(Termination.SCOREGAME); Phase.CLEAROBJ }
+                        FLY -> fly(INTRANSITIVE)
+                        BRIEF -> brief()
+                        BLAST -> { blast(); Phase.CLEAROBJ }
                         ATTACK -> { obj = INTRANSITIVE; attack(INTRANSITIVE) }
                         DROP, SAY, WAVE, TAME, RUB, THROW, FIND, FEED, BREAK, WAKE ->
                             Phase.UNKNOWN
@@ -945,6 +947,11 @@ class Adventure(
         READ -> read(obj)
         PART -> reservoir()
         SAY -> say()
+        FLY -> fly(obj)
+        BREAK -> vbreak(obj)
+        FIND, INVENTORY -> find(obj)
+        TAME, GO -> { speak(actions[verb].message); Phase.CLEAROBJ }
+        WASTE -> waste(word2.raw.toIntOrNull() ?: 0)
         SEED -> {
             // Speaks the *action's* own message, not an arbitrary message --
             // actions carry a message field of their own and rspeak() would
@@ -1823,6 +1830,104 @@ class Adventure(
             else -> pspeak(o, SpeakType.STUDY, true, game.objectState[o].prop)
         }
         return Phase.CLEAROBJ
+    }
+
+    /** Upstream `fly()`. Snide remarks unless the hovering rug is here. */
+    private fun fly(objIn: Int): Phase {
+        var o = objIn
+        if (o == INTRANSITIVE) {
+            if (!game.here(RUG)) { rspeak(FLAP_ARMS); return Phase.CLEAROBJ }
+            if (game.objectState[RUG].prop != RUG_HOVER) {
+                rspeak(RUG_NOTHING2); return Phase.CLEAROBJ
+            }
+            o = RUG
+        }
+        if (o != RUG) { speak(actions[verb].message); return Phase.CLEAROBJ }
+        if (game.objectState[RUG].prop != RUG_HOVER) {
+            rspeak(RUG_NOTHING1); return Phase.CLEAROBJ
+        }
+
+        when (game.loc) {
+            LOC_CLIFF -> {
+                game.oldlc2 = game.oldloc
+                game.oldloc = game.loc
+                game.newloc = LOC_LEDGE
+                rspeak(RUG_GOES)
+            }
+            LOC_LEDGE -> {
+                game.oldlc2 = game.oldloc
+                game.oldloc = game.loc
+                game.newloc = LOC_CLIFF
+                rspeak(RUG_RETURNS)
+            }
+            else -> rspeak(NOTHING_HAPPENS) // should never happen
+        }
+        return Phase.EXECUTED
+    }
+
+    /** Upstream `vbreak()`. Works only on the mirror and, of course, the vase. */
+    private fun vbreak(o: Int): Phase {
+        when {
+            o == MIRROR -> if (game.closed) {
+                stateChange(MIRROR, MIRROR_BROKEN)
+                return notPorted() // upstream returns GO_DWARFWAKE
+            } else {
+                rspeak(TOO_FAR)
+            }
+            o == VASE && game.objectState[VASE].prop == VASE_WHOLE -> {
+                if (game.toting(VASE)) game.drop(VASE, game.loc)
+                stateChange(VASE, VASE_BROKEN)
+                game.objectState[VASE].fixed = IS_FIXED
+            }
+            else -> speak(actions[verb].message)
+        }
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `find()`. Also serves "inventory <object>". */
+    private fun find(o: Int): Phase {
+        if (game.toting(o)) { rspeak(ALREADY_CARRYING); return Phase.CLEAROBJ }
+        if (game.closed) { rspeak(NEEDED_NEARBY); return Phase.CLEAROBJ }
+        if (game.at(o) || (game.liquid() == o && game.at(BOTTLE)) ||
+            o == game.liqloc(game.loc) || (o == DWARF && game.atdwrf(game.loc) > 0)
+        ) {
+            rspeak(YOU_HAVEIT)
+            return Phase.CLEAROBJ
+        }
+        speak(actions[verb].message)
+        return Phase.CLEAROBJ
+    }
+
+    /** Upstream `brief()`. Suppress the long descriptions after the first time. */
+    private fun brief(): Phase {
+        game.abbnum = 10000
+        game.detail = 3
+        rspeak(BRIEF_CONFIRM)
+        return Phase.CLEAROBJ
+    }
+
+    /**
+     * Upstream `blast()`. No effect unless you have the dynamite, which is a
+     * neat trick -- and it is how the game is actually won.
+     */
+    private fun blast() {
+        if (game.objectIsNotFound(ROD2) || !game.closed) {
+            rspeak(REQUIRES_DYNAMITE)
+            return
+        }
+        when {
+            game.here(ROD2) -> { game.bonus = Bonus.SPLATTER; rspeak(SPLATTER_MESSAGE) }
+            game.loc == LOC_NE -> { game.bonus = Bonus.DEFEAT; rspeak(DEFEAT_MESSAGE) }
+            else -> { game.bonus = Bonus.VICTORY; rspeak(VICTORY_MESSAGE) }
+        }
+        terminate(Termination.ENDGAME)
+    }
+
+    /** Upstream `waste()`: burn turns off the lamp. */
+    private fun waste(turns: Int): Phase {
+        game.limit -= turns
+        speak(actions[verb].message, game.limit)
+        return Phase.TOP
     }
 
     /** Upstream `wave()`. No effect unless waving the rod at the fissure or the bird. */
