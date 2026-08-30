@@ -82,8 +82,13 @@ class GameState {
     var loc = LOC_START
     var newloc = LOC_START
     var numdie = 0
-    var oldloc = LOC_START
-    var oldlc2 = LOC_START
+    // Upstream's game struct initializer names loc and newloc but not these, so
+    // they start at zero -- LOC_NOWHERE, not LOC_START. It matters on the very
+    // first turn: "back" from the start with oldloc = LOC_START reports having
+    // forgotten the path, when the right answer is that you cannot get there
+    // from here.
+    var oldloc = LOC_NOWHERE
+    var oldlc2 = LOC_NOWHERE
     var oldobj = NO_OBJECT
     var saved = 0
     var tally = 0

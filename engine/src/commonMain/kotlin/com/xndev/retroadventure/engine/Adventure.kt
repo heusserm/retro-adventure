@@ -2375,7 +2375,12 @@ class Adventure(
                 while (true) { // reprocess after a word shift, no new input
                     if (word1.isEmpty) continue@input
 
-                    if (word1.id == WORD_NOT_FOUND && word1.type == WordType.NONE) {
+                    // Test the id alone. preprocessCommand() has already
+                    // retyped an unclassified word as a motion by this point,
+                    // so also requiring type == NONE means an unknown word is
+                    // answered with "I don't know how to apply that word here"
+                    // instead of "I don't know the word".
+                    if (word1.id == WORD_NOT_FOUND) {
                         sspeak(DONT_KNOW, word1.raw)
                         clearCommand()
                         continue@input
