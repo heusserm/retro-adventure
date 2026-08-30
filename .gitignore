@@ -18,3 +18,4 @@ iosApp/build/
 .DS_Store
 
 __pycache__/
+iosApp/iosApp.xcodeproj/
