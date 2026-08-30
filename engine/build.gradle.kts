@@ -4,9 +4,13 @@ plugins {
 
 kotlin {
     jvm()
-    // Android and iOS targets get added when app/ arrives; keeping the engine
-    // JVM-only for now means `./gradlew :engine:jvmTest` runs without the
-    // Android SDK installed.
+    // iOS targets are here so the engine is proven to compile and test on
+    // Kotlin/Native, not just the JVM. Android is deliberately absent: adding it
+    // would make `:engine:jvmTest` require the Android SDK, and the engine has
+    // no Android-specific code to test. Add androidTarget() when app/ lands.
+    iosX64()
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         commonTest.dependencies {
@@ -15,7 +19,8 @@ kotlin {
     }
 }
 
-// The transcript regression suite reads vendor/open-adventure/tests at runtime.
+// The transcript regression suite reads vendor/open-adventure/tests at runtime,
+// so it is a JVM-only test -- Kotlin/Native has no portable file access here.
 tasks.withType<Test>().configureEach {
     systemProperty("retroadventure.testdir", rootProject.file("vendor/open-adventure/tests").absolutePath)
     testLogging { showStandardStreams = true }

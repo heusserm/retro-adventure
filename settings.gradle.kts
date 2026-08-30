@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "RetroAdventure"
 
 include(":engine")
+include(":session")
