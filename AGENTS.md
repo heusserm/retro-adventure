@@ -1,4 +1,4 @@
-# AGENTS.md — Retro Adventure
+# AGENTS.md — Adventure 430
 
 Working notes for coding agents. Read this before touching the project; it
 records the commands that work and the traps that cost time.
@@ -9,8 +9,16 @@ as an iOS and Android app. One shared Kotlin engine, Compose Multiplatform front
 ends. Fully offline; there is nothing to talk to.
 
 **Location:** `~/Code/RetroAdventure`
-**App Store:** `com.xndev.retroAdventure`, Team `A69JRS6V57` — **no App Store
-Connect record exists yet.** Price not set.
+**App Store:** name **Adventure 430**, bundle `com.xndev.retroAdventure`,
+Team `A69JRS6V57`. The App Store record exists and the bundle ID is registered;
+price not set.
+
+**The store name and the repo name differ on purpose.** "Retro Adventure" was
+refused in the New App dialog -- already reserved by someone, invisible from
+outside, exactly as "Little Journal" had been. The bundle ID, the SKU, the repo,
+the Kotlin package and the local directory all keep the original working name,
+because a bundle ID is permanent and none of the rest is visible to a customer.
+Only the five user-facing strings changed. Do not "fix" the mismatch.
 **Upstream:** <https://gitlab.com/esr/open-adventure>, vendored at the commit in
 `vendor/open-adventure/UPSTREAM-COMMIT.txt` (1.22, 2026-07-08).
 

@@ -67,7 +67,7 @@ compose.desktop {
         mainClass = "com.xndev.retroadventure.app.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)
-            packageName = "RetroAdventure"
+            packageName = "Adventure430"
             packageVersion = "1.0.0"
         }
     }

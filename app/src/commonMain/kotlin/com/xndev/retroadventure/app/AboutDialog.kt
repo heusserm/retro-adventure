@@ -50,7 +50,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Close") }
         },
-        title = { Text("Retro Adventure") },
+        title = { Text("Adventure 430") },
         text = {
             Column(
                 modifier = Modifier

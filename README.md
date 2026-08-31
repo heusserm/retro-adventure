@@ -1,7 +1,8 @@
-# Retro Adventure
+# Adventure 430
 
 Colossal Cave Adventure — the 1995 430-point Crowther/Woods version — ported to
-Kotlin for iOS and Android.
+Kotlin for iOS and Android. Shipped on the App Store as **Adventure 430**; the
+repo and bundle ID keep the original working name.
 
 The game logic is a port of [open-adventure](https://gitlab.com/esr/open-adventure),
 Eric S. Raymond's maintained forward-port of Adventure 2.5, released with the
