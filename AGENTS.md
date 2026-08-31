@@ -154,35 +154,30 @@ anything wrong. They are skipped by name in `TranscriptTest`.
 
 ## Porting status
 
-**86 of 103 transcripts match upstream byte for byte; 131,896 of 134,281 lines
-(98%).** Engine line coverage 99%, branch coverage 89%.
+**All 102 runnable transcripts match upstream byte for byte.** Engine line
+coverage 99%, branch coverage 89%; session 97% / 77%.
 
-Ported and verified: the generated data tables, the LCG, the vocabulary, the
-output pipeline, movement including special travel, the full `action()`
-dispatch, effectively all of `actions.c`, the dwarves and the pirate, death and
-resurrection, the cave-closing sequence, hints, the lamp timer, and scoring.
+Ported: the generated data tables, the LCG, the vocabulary, the output
+pipeline, movement including special travel, the full `action()` dispatch, all
+of `actions.c`, the dwarves and the pirate, death and resurrection, the
+cave-closing sequence, hints, the lamp timer, scoring, save and resume, and
+oldstyle (`-o`) mode.
 
-What is left, in order of what it would buy:
+Two categories sit outside that 102, and neither is a gap in the game:
 
-- **Save and restore work, two ways.** The app's buttons go through
-  `GameSession.snapshot()` / `restoreFrom()`, which read the state between turns
-  -- safe because receiving a turn's output is the synchronization point, after
-  which the engine is parked on the input channel. The game's own `save` verb
-  still behaves as upstream does, which includes *exiting after saving*: correct
-  for a 1977 terminal, wrong for a phone, which is why the buttons do not use
-  it. Storage is `SaveStore`, implemented per platform in `app/`.
-  `SaveFormat.kt` is a plain text format, version-guarded, that refuses a
-  foreign or damaged save rather than half-loading one. The `saveresume.*`
-  transcripts still fail: they want upstream's raw binary struct.
-- **`badmagic` cannot pass here.** It resumes from `../main.o`, a file that
-  exists only in upstream's own build directory, and expects the corrupt-save
-  message. It is testing C build layout, not game logic.
-- A handful of remaining diffs in ported paths; run the suite and read the
-  scoreboard.
+- **`illformed` differs by design**, because the instructions carry an added
+  porting credit. `TranscriptTest.divergesByDesign` records it.
+- **Four savegame tests are skipped**: `cheatresume`, `cheatresume2`,
+  `resumefail2`, `savetamper`. They need `.adv` files built by upstream's
+  `cheat` binary, which writes deliberately corrupt versions of upstream's raw
+  struct format. This port's save format is text and its own, so those fixtures
+  cannot be reproduced without also implementing upstream's `is_valid()`
+  state-plausibility check. The reference C binary fails them here too, for the
+  same missing-fixture reason.
 
-`app/` and `iosApp/` both exist and run. What stands between here and the store
-is process, not code: no App Store Connect record, no price, no icon (the
-AppIcon set is an empty placeholder), and no screenshots.
+`app/` and `iosApp/` both build and run: desktop, Android APK, and iOS on the
+simulator. What stands between here and the store is process, not code -- no App
+Store Connect record, no price, no screenshots.
 
 **Check the name first.** Per `~/Code/AppStoreListings/STATUS.md`, typing it into
 the New App dialog is the only real test that "Retro Adventure" is free, and
@@ -222,6 +217,12 @@ than failing it. `GameState.carry()` now throws instead, on purpose.
 instantly with "command not found", and if you are piping through `grep` you
 see nothing at all and conclude the build hung. Use `gtimeout` (coreutils) or
 just let Gradle run.
+
+**Three scripts carry an `#options:` line.** `oldstyle` wants `-o` and
+`saveresumeopt` wants `-r <file>`; `logopt` wants `-l`, which changes nothing on
+stdout. Ignoring that line silently is why those two looked unportable for
+weeks -- they are ordinary tests of ordinary features, run with a flag nobody
+was passing on.
 
 **The session's input channel is buffered, not a rendezvous.** A line sent
 after the game has ended suspends forever on a rendezvous, and closing the

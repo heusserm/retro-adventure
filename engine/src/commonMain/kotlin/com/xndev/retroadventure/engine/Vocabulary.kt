@@ -21,6 +21,7 @@ package com.xndev.retroadventure.engine
  */
 
 const val TOKLEN = 5
+const val TRUNCLEN = TOKLEN + TOKLEN
 const val WORD_EMPTY = 0
 const val WORD_NOT_FOUND = -1
 
@@ -36,16 +37,18 @@ private fun tokenMatches(word: String, entry: String): Boolean =
     word.take(TOKLEN).lowercase() == entry.take(TOKLEN).lowercase()
 
 object Vocabulary {
-    /** Upstream's `settings.oldstyle`: emulate the 1977 UI, including its warts. */
-    var oldstyle: Boolean = false
-
-    private fun accepted(word: String): Boolean =
+    /**
+     * `oldstyle` is upstream's `settings.oldstyle`: emulate the 1977 UI,
+     * including its warts. Passed through rather than held as state, so two
+     * games in one process cannot disagree about it.
+     */
+    private fun accepted(word: String, oldstyle: Boolean): Boolean =
         word.length > 1 || !IGNORE.contains(word[0].uppercaseChar()) || !oldstyle
 
-    fun motionId(word: String): Int {
+    fun motionId(word: String, oldstyle: Boolean = false): Int {
         for (i in motions.indices) {
             for (w in motions[i].words) {
-                if (tokenMatches(word, w) && accepted(word)) return i
+                if (tokenMatches(word, w) && accepted(word, oldstyle)) return i
             }
         }
         return WORD_NOT_FOUND
@@ -60,10 +63,10 @@ object Vocabulary {
         return WORD_NOT_FOUND
     }
 
-    fun actionId(word: String): Int {
+    fun actionId(word: String, oldstyle: Boolean = false): Int {
         for (i in actions.indices) {
             for (w in actions[i].words) {
-                if (tokenMatches(word, w) && accepted(word)) return i
+                if (tokenMatches(word, w) && accepted(word, oldstyle)) return i
             }
         }
         return WORD_NOT_FOUND
@@ -75,16 +78,16 @@ object Vocabulary {
     }
 
     /** Upstream `get_vocab_metadata()`. `zzword` is the bird's magic word. */
-    fun classify(word: String, zzword: String): Word {
+    fun classify(word: String, zzword: String, oldstyle: Boolean = false): Word {
         if (word.isEmpty()) return EMPTY_WORD
 
-        var ref = motionId(word)
+        var ref = motionId(word, oldstyle)
         if (ref != WORD_NOT_FOUND) return Word(word, ref, WordType.MOTION)
 
         ref = objectId(word)
         if (ref != WORD_NOT_FOUND) return Word(word, ref, WordType.OBJECT)
 
-        ref = actionId(word)
+        ref = actionId(word, oldstyle)
         if (ref != WORD_NOT_FOUND && ref != PART) return Word(word, ref, WordType.ACTION)
 
         // The reservoir magic word, which changes with the seed.
@@ -100,10 +103,15 @@ object Vocabulary {
      * classify them. Anything past the second word is discarded, exactly as
      * upstream's `sscanf(raw, "%s%s", ...)` does.
      */
-    fun tokenize(raw: String, zzword: String): Pair<Word, Word> {
+    fun tokenize(raw: String, zzword: String, oldstyle: Boolean = false): Pair<Word, Word> {
         val parts = raw.trim().split(Regex("[ \t]+")).filter { it.isNotEmpty() }
-        val first = classify(parts.getOrElse(0) { "" }, zzword)
-        val second = classify(parts.getOrElse(1) { "" }, zzword)
+        // In oldstyle, simulate the uppercasing and truncation the FORTRAN
+        // version imposed by packing tokens into sixbit, five to a 32-bit word.
+        // TRUNCLEN is 10, not TOKLEN -- that reflects the FORTRAN faithfully and
+        // may itself have been a bug, but emulating it is the whole point.
+        fun mangle(w: String) = if (oldstyle) w.take(TRUNCLEN).uppercase() else w
+        val first = classify(mangle(parts.getOrElse(0) { "" }), zzword, oldstyle)
+        val second = classify(mangle(parts.getOrElse(1) { "" }), zzword, oldstyle)
         return first to second
     }
 }

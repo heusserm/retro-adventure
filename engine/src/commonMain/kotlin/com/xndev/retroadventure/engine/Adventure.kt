@@ -60,9 +60,19 @@ const val FORCED_MOVE_LIMIT = 200
 class Adventure(
     private val input: InputSource,
     val out: Output = Output(),
-    private val prompt: Boolean = true,
+    /**
+     * Upstream's `-o`: emulate the 1977 UI, warts included. It suppresses the
+     * prompt, uppercases and truncates input, rejects the single-letter
+     * abbreviations, and prints "Initialising..." on the way in.
+     */
+    private val oldstyle: Boolean = false,
     private val saves: SaveStore = NoSaveStore,
+    /** Upstream's `-r`: resume this save instead of asking the opening question. */
+    private val resumeName: String? = null,
 ) {
+    /** Upstream's `settings.prompt`, which `-o` turns off. */
+    private val prompt: Boolean = !oldstyle
+
     val game = GameState()
 
     private var word1: Word = EMPTY_WORD
@@ -1853,7 +1863,7 @@ class Adventure(
         }
 
         // Sequence was started but is incorrect.
-        rspeak(if (game.seenbigwords) START_OVER else WELL_POINTLESS)
+        rspeak(if (oldstyle || game.seenbigwords) START_OVER else WELL_POINTLESS)
         game.foobar = WORD_EMPTY
         return Phase.CLEAROBJ
     }
@@ -2393,7 +2403,7 @@ class Adventure(
                 game.foobar = if (game.foobar > WORD_EMPTY) -game.foobar else WORD_EMPTY
                 game.turns++
 
-                val (w1, w2) = Vocabulary.tokenize(line, game.zzword)
+                val (w1, w2) = Vocabulary.tokenize(line, game.zzword, oldstyle)
                 word1 = w1
                 word2 = w2
 
@@ -2438,9 +2448,13 @@ class Adventure(
                             return true
                         }
                         WordType.NUMERIC -> {
-                            sspeak(DONT_KNOW, word1.raw)
-                            clearCommand()
-                            continue@input
+                            // Oldstyle accepted a bare number without comment;
+                            // modern mode says it does not know the word.
+                            if (!oldstyle) {
+                                sspeak(DONT_KNOW, word1.raw)
+                                clearCommand()
+                                continue@input
+                            }
                         }
                         WordType.OBJECT -> {
                             part = Part.UNKNOWN
@@ -2496,13 +2510,34 @@ class Adventure(
 
     /** Upstream `main()`: initialise, greet, then loop until end of input. */
     fun run(seedval: Int) {
+        if (oldstyle) out.line("Initialising...")
         game.initialise(seedval)
-        game.novice = yesOrNo(
-            arbitraryMessages[WELCOME_YOU],
-            arbitraryMessages[CAVE_NEARBY],
-            arbitraryMessages[NO_MESSAGE],
-        )
-        if (game.novice) game.limit = NOVICELIMIT
+
+        // -r resumes straight into a saved game, so the opening question is
+        // neither asked nor answered.
+        val resumeData = resumeName?.let { saves.read(it) }
+        if (resumeData != null) {
+            try {
+                game.restore(resumeData)
+            } catch (e: SaveFormatException) {
+                if (e.problem == SaveProblem.WRONG_VERSION) {
+                    rspeak(
+                        VERSION_SKEW,
+                        e.foundVersion / 10, e.foundVersion % 10,
+                        SAVE_VERSION / 10, SAVE_VERSION % 10,
+                    )
+                } else {
+                    rspeak(BAD_SAVE)
+                }
+            }
+        } else {
+            game.novice = yesOrNo(
+                arbitraryMessages[WELCOME_YOU],
+                arbitraryMessages[CAVE_NEARBY],
+                arbitraryMessages[NO_MESSAGE],
+            )
+            if (game.novice) game.limit = NOVICELIMIT
+        }
 
         while (!finished) {
             if (!doMove()) continue

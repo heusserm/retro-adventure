@@ -58,8 +58,8 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 100
-    private val lineBaseline = 134100
+    private val passBaseline = 102
+    private val lineBaseline = 134150
 
     /**
      * Set -Dretroadventure.dump=<name> to write that transcript's actual output
@@ -98,13 +98,43 @@ class TranscriptTest {
         }
     }
 
+    /**
+     * Three scripts carry an `#options:` line naming the command-line flags
+     * upstream was run with. Ignoring it silently is why `oldstyle` and
+     * `saveresumeopt` looked unportable for so long -- they are ordinary tests
+     * of ordinary features, run with a flag nobody was passing on.
+     *
+     * `-l` writes a log file and changes nothing on stdout, so it is accepted
+     * and ignored.
+     */
+    private fun optionsOf(log: File): Pair<Boolean, String?> {
+        val line = log.readLines().firstOrNull { it.trimStart().startsWith("#options:") }
+            ?: return false to null
+        val args = line.substringAfter("#options:").trim().split(Regex("\\s+"))
+        var oldstyle = false
+        var resume: String? = null
+        var i = 0
+        while (i < args.size) {
+            when (args[i]) {
+                "-o" -> oldstyle = true
+                "-r" -> resume = args.getOrNull(++i)
+                "-l" -> i++ // log file; no effect on what is printed
+            }
+            i++
+        }
+        return oldstyle to resume
+    }
+
     private fun runScript(log: File, saveRoot: File): String {
+        val (oldstyle, resume) = optionsOf(log)
         val lines = log.readLines().iterator()
         val out = Output()
         val adv = Adventure(
             input = { if (lines.hasNext()) lines.next() else null },
             out = out,
+            oldstyle = oldstyle,
             saves = fileStore(saveRoot),
+            resumeName = resume,
         )
         // Upstream seeds from the clock and then most scripts immediately issue
         // their own `seed` command; any fixed value works as the pre-seed.
