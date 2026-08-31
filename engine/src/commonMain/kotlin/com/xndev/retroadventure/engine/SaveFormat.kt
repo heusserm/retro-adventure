@@ -21,8 +21,20 @@ package com.xndev.retroadventure.engine
 const val SAVE_MAGIC = "retro-adventure-save"
 const val SAVE_VERSION = 1
 
-/** Thrown when a save cannot be used. The message is shown to the player. */
-class SaveFormatException(message: String) : Exception(message)
+/** Why a save could not be used. The game says something different for each. */
+enum class SaveProblem { NOT_A_SAVE, WRONG_VERSION, DAMAGED }
+
+/**
+ * Thrown when a save cannot be used. [message] is for a UI that wants to say
+ * something itself; the game's own `resume` verb speaks upstream's wording
+ * instead, keyed off [problem].
+ */
+class SaveFormatException(
+    val problem: SaveProblem,
+    message: String,
+    /** The version found in the file, when that is what went wrong. */
+    val foundVersion: Int = 0,
+) : Exception(message)
 
 private fun StringBuilder.put(key: String, value: Any) {
     append(key).append('=').append(value).append('\n')
@@ -78,30 +90,38 @@ fun GameState.restore(text: String) {
     for (line in text.lineSequence()) {
         if (line.isBlank()) continue
         val i = line.indexOf('=')
-        if (i <= 0) throw SaveFormatException("This does not look like a saved game.")
+        if (i <= 0) throw SaveFormatException(
+            SaveProblem.NOT_A_SAVE, "This does not look like a saved game."
+        )
         fields[line.substring(0, i)] = line.substring(i + 1)
     }
 
     if (fields["magic"] != SAVE_MAGIC) {
-        throw SaveFormatException("This does not look like a saved game.")
-    }
-    if (fields["version"]?.toIntOrNull() != SAVE_VERSION) {
         throw SaveFormatException(
-            "That save is from a different version of the game and cannot be resumed."
+            SaveProblem.NOT_A_SAVE, "This does not look like a saved game."
+        )
+    }
+    val found = fields["version"]?.toIntOrNull()
+    if (found != SAVE_VERSION) {
+        throw SaveFormatException(
+            SaveProblem.WRONG_VERSION,
+            "That save is from a different version of the game and cannot be resumed.",
+            foundVersion = found ?: 0,
         )
     }
 
     fun int(key: String): Int = fields[key]?.toIntOrNull()
-        ?: throw SaveFormatException("That saved game is damaged.")
+        ?: throw SaveFormatException(SaveProblem.DAMAGED, "That saved game is damaged.")
     fun bool(key: String): Boolean = fields[key]?.toBooleanStrictOrNull()
-        ?: throw SaveFormatException("That saved game is damaged.")
+        ?: throw SaveFormatException(SaveProblem.DAMAGED, "That saved game is damaged.")
+    fun damaged(): Nothing =
+        throw SaveFormatException(SaveProblem.DAMAGED, "That saved game is damaged.")
+
     fun ints(key: String, expected: Int): IntArray {
-        val raw = fields[key] ?: throw SaveFormatException("That saved game is damaged.")
+        val raw = fields[key] ?: damaged()
         val parts = if (raw.isEmpty()) emptyList() else raw.split(",")
-        if (parts.size != expected) throw SaveFormatException("That saved game is damaged.")
-        return IntArray(expected) {
-            parts[it].toIntOrNull() ?: throw SaveFormatException("That saved game is damaged.")
-        }
+        if (parts.size != expected) damaged()
+        return IntArray(expected) { parts[it].toIntOrNull() ?: damaged() }
     }
 
     // Parse everything before touching the live game.
@@ -120,7 +140,7 @@ fun GameState.restore(text: String) {
     val newBonus = try {
         Adventure.Bonus.valueOf(fields["bonus"] ?: "NONE")
     } catch (_: IllegalArgumentException) {
-        throw SaveFormatException("That saved game is damaged.")
+        damaged()
     }
 
     rng.x = int("lcg")

@@ -1,6 +1,7 @@
 package com.xndev.retroadventure.engine
 
 import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -57,8 +58,8 @@ class TranscriptTest {
      * matching prefix of every transcript, so porting one more verb moves a
      * number today and a regression shows up immediately.
      */
-    private val passBaseline = 95
-    private val lineBaseline = 134000
+    private val passBaseline = 100
+    private val lineBaseline = 134100
 
     /**
      * Set -Dretroadventure.dump=<name> to write that transcript's actual output
@@ -67,10 +68,44 @@ class TranscriptTest {
      */
     private val dumpName: String? = System.getProperty("retroadventure.dump")
 
-    private fun runScript(log: File): String {
+    /**
+     * A save store backed by real files, rooted in a scratch tree shaped like
+     * upstream's: a `tests` directory with the project root above it.
+     *
+     * `badmagic` types `../main.o` -- an object file that exists while upstream
+     * is building, is not a save, and makes the game say so. Reproducing that
+     * needs a store that can genuinely open a path, so the tree gets a `main.o`
+     * of plausible garbage. Without it the game answers "can't open" and the
+     * transcript diverges for a reason that has nothing to do with the game.
+     */
+    private fun fileStore(root: File): SaveStore {
+        val base = File(root, "tests").apply { mkdirs() }
+        File(root, "main.o").writeBytes(
+            byteArrayOf(0xCF.toByte(), 0xFA.toByte(), 0xED.toByte(), 0xFE.toByte()) +
+                ByteArray(64) { (it * 7).toByte() }
+        )
+        return object : SaveStore {
+            override fun write(name: String, data: String): Boolean = try {
+                File(base, name).apply { parentFile?.mkdirs() }.writeText(data); true
+            } catch (_: Exception) {
+                false
+            }
+
+            override fun read(name: String): String? {
+                val f = File(base, name)
+                return if (f.isFile) runCatching { f.readText() }.getOrNull() else null
+            }
+        }
+    }
+
+    private fun runScript(log: File, saveRoot: File): String {
         val lines = log.readLines().iterator()
         val out = Output()
-        val adv = Adventure(input = { if (lines.hasNext()) lines.next() else null }, out = out)
+        val adv = Adventure(
+            input = { if (lines.hasNext()) lines.next() else null },
+            out = out,
+            saves = fileStore(saveRoot),
+        )
         // Upstream seeds from the clock and then most scripts immediately issue
         // their own `seed` command; any fixed value works as the pre-seed.
         adv.run(1)
@@ -85,6 +120,12 @@ class TranscriptTest {
 
         assertTrue(logs.size >= 100, "expected ~107 transcripts, found ${logs.size}")
 
+        // One directory for the whole run, not one per transcript: saveresume.2
+        // resumes the file saveresume.1 wrote, exactly as upstream's suite does
+        // by running them in the same working directory. The names are distinct,
+        // so sharing costs nothing else.
+        val saveRoot = createTempDirectory("retroadventure-saves").toFile()
+
         var passed = 0
         var matchedLines = 0
         var expectedLines = 0
@@ -98,7 +139,7 @@ class TranscriptTest {
             if (!chk.exists()) continue
 
             val actual = try {
-                runScript(log)
+                runScript(log, saveRoot)
             } catch (e: Throwable) {
                 failures += "$name: threw ${e::class.simpleName}: ${e.message}"
                 continue
@@ -124,6 +165,8 @@ class TranscriptTest {
                 blockers.getOrPut(blame(divergence)) { mutableListOf() } += "$name:$divergence"
             }
         }
+
+        saveRoot.deleteRecursively()
 
         val total = logs.size - skipped.size - divergesByDesign.size
         println("=".repeat(72))

@@ -2144,11 +2144,18 @@ class Adventure(
             try {
                 game.restore(data)
             } catch (e: SaveFormatException) {
-                // A damaged or foreign save must not leave a half-restored
-                // game running -- restore() parses everything before it writes
+                // A damaged or foreign save must not leave a half-restored game
+                // running -- restore() parses everything before it writes
                 // anything, so the game in progress is untouched here.
-                out.line()
-                out.line(e.message ?: "That saved game cannot be resumed.")
+                if (e.problem == SaveProblem.WRONG_VERSION) {
+                    rspeak(
+                        VERSION_SKEW,
+                        e.foundVersion / 10, e.foundVersion % 10,
+                        SAVE_VERSION / 10, SAVE_VERSION % 10,
+                    )
+                } else {
+                    rspeak(BAD_SAVE)
+                }
                 return Phase.TOP
             }
             return Phase.TOP
