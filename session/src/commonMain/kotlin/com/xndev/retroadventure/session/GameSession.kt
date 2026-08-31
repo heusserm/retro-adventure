@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -45,7 +46,20 @@ class GameSession(
     private val saves: SaveStore = NoSaveStore,
 ) {
 
-    private val inbox = Channel<String>(Channel.RENDEZVOUS)
+    /**
+     * The input queue is buffered, not a rendezvous, and that is deliberate.
+     *
+     * With a rendezvous, a line sent after the game has ended suspends waiting
+     * for a receiver that will never exist, and closing the channel afterwards
+     * does not reliably wake it -- measured, not assumed. Buffering means
+     * `send` never blocks: the line lands in the queue, nothing reads it, and
+     * the caller learns the game is over from the closed output channel
+     * instead. "The game just ended" is precisely when a player types one more
+     * thing, so this path has to be sound.
+     */
+    private val inbox = Channel<String>(Channel.UNLIMITED)
+
+    /** Output stays a rendezvous: one turn handed over, one turn received. */
     private val outbox = Channel<String>(Channel.RENDEZVOUS)
     private val out = Output()
     private var job: Job? = null
@@ -86,6 +100,11 @@ class GameSession(
             } finally {
                 outbox.send(out.take())
                 outbox.close()
+                // Close the inbox too. Without this a caller that sends one more
+                // line after the game has ended blocks forever on a rendezvous
+                // nobody will ever meet -- and "the game is over" is exactly when
+                // a player types one more thing.
+                inbox.close()
             }
         }
         return outbox.receive()
@@ -97,9 +116,11 @@ class GameSession(
      */
     suspend fun send(line: String): String? {
         if (!isRunning) return null
-        inbox.send(line)
         return try {
+            inbox.send(line)
             outbox.receive()
+        } catch (_: ClosedSendChannelException) {
+            null // the game ended between the check above and this send
         } catch (_: ClosedReceiveChannelException) {
             null
         }

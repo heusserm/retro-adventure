@@ -28,9 +28,25 @@ actual fun platformSaveStore(): SaveStore = object : SaveStore {
             ?.let { runCatching { it.readText() }.getOrNull() }
     }
 
+    override fun delete(name: String): Boolean =
+        saveDir()?.let { slot(it, name).delete() } ?: false
+
     override fun list(): List<String> =
         saveDir()?.listFiles { f -> f.extension == "adv" }
             ?.sortedByDescending { it.lastModified() }
             ?.map { it.nameWithoutExtension }
+            ?.filter(::isPlayerSlot)
             ?: emptyList()
+}
+
+actual fun platformSettings(): Settings = object : Settings {
+    private fun prefs() =
+        appContext?.getSharedPreferences("retroadventure", Context.MODE_PRIVATE)
+
+    override fun getBoolean(key: String, default: Boolean): Boolean =
+        prefs()?.getBoolean(key, default) ?: default
+
+    override fun putBoolean(key: String, value: Boolean) {
+        prefs()?.edit()?.putBoolean(key, value)?.apply()
+    }
 }

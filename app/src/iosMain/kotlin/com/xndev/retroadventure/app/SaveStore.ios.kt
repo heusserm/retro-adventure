@@ -44,6 +44,11 @@ actual fun platformSaveStore(): SaveStore = object : SaveStore {
         )
     }
 
+    override fun delete(name: String): Boolean {
+        val dir = saveDir() ?: return false
+        return NSFileManager.defaultManager.removeItemAtPath(slot(dir, name), null)
+    }
+
     override fun list(): List<String> {
         val dir = saveDir() ?: return emptyList()
         val names = NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null)
@@ -51,6 +56,18 @@ actual fun platformSaveStore(): SaveStore = object : SaveStore {
         return names.filterIsInstance<String>()
             .filter { it.endsWith(".adv") }
             .map { it.removeSuffix(".adv") }
+            .filter(::isPlayerSlot)
             .sorted()
+    }
+}
+
+actual fun platformSettings(): Settings = object : Settings {
+    private val defaults = platform.Foundation.NSUserDefaults.standardUserDefaults
+
+    override fun getBoolean(key: String, default: Boolean): Boolean =
+        if (defaults.objectForKey(key) == null) default else defaults.boolForKey(key)
+
+    override fun putBoolean(key: String, value: Boolean) {
+        defaults.setBool(value, key)
     }
 }

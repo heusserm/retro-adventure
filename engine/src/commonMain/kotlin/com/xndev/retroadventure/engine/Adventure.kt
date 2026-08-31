@@ -41,6 +41,9 @@ interface SaveStore {
 
     /** Names of the saves that exist, newest first where that is knowable. */
     fun list(): List<String> = emptyList()
+
+    /** Remove a save. Returns false if it could not be removed. */
+    fun delete(name: String): Boolean = false
 }
 
 /** The default store: nothing can be saved or loaded. */

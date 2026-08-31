@@ -47,7 +47,11 @@ import kotlin.random.Random
  * that class for why the loop keeps its 1977 shape.
  */
 @Composable
-fun App(seed: Int = Random.nextInt(), saves: SaveStore = platformSaveStore()) {
+fun App(
+    seed: Int = Random.nextInt(),
+    saves: SaveStore = platformSaveStore(),
+    settings: Settings = platformSettings(),
+) {
     val scope = rememberCoroutineScope()
     // Bumping this starts a fresh game: it re-keys the remember below, so the
     // old session and its transcript go away entirely.
@@ -56,11 +60,29 @@ fun App(seed: Int = Random.nextInt(), saves: SaveStore = platformSaveStore()) {
     var transcript by remember(generation) { mutableStateOf("") }
     var input by remember { mutableStateOf("") }
     var showAbout by remember { mutableStateOf(false) }
+    var showSaves by remember { mutableStateOf(false) }
+    var slots by remember { mutableStateOf(saves.list()) }
+    var autosaveOn by remember {
+        mutableStateOf(settings.getBoolean(SETTING_AUTOSAVE, true))
+    }
     var busy by remember { mutableStateOf(false) }
-    var hasSave by remember { mutableStateOf(saves.read(QUICK_SAVE) != null) }
 
     LaunchedEffect(session) {
         transcript = session.start(scope)
+        // Pick up where they left off. Only the autosave slot resumes silently;
+        // a named save is theirs to load when they want it.
+        val auto = saves.read(AUTOSAVE_SLOT)
+        if (auto != null && generation == 0) {
+            if (session.restoreFrom(auto) == null) {
+                transcript += session.send("look") ?: ""
+                transcript += "\nResumed where you left off.\n"
+            }
+        }
+    }
+
+    // The last moment worth saving in: the OS may kill the process next.
+    OnBackground {
+        if (autosaveOn) session.snapshot()?.let { saves.write(AUTOSAVE_SLOT, it) }
     }
 
     fun submit() {
@@ -130,52 +152,17 @@ fun App(seed: Int = Random.nextInt(), saves: SaveStore = platformSaveStore()) {
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    // Save and Restore go through GameSession's snapshot API,
-                    // not the game's own save verb: upstream's save asks for a
-                    // filename and then exits the game, which is right for a
-                    // 1977 terminal and wrong for a phone. Typing `save` still
-                    // behaves as upstream does.
                     TextButton(
                         enabled = !busy,
-                        onClick = {
-                            val data = session.snapshot()
-                            when {
-                                data == null -> note("The game has not started yet.")
-                                saves.write(QUICK_SAVE, data) -> {
-                                    hasSave = true
-                                    note("Saved.")
-                                }
-                                else -> note("Could not save.")
-                            }
-                        },
-                    ) { Text("Save", fontSize = 12.sp) }
+                        onClick = { slots = saves.list(); showSaves = true },
+                    ) { Text("Saves", fontSize = 12.sp) }
 
-                    TextButton(
-                        enabled = !busy && hasSave,
-                        onClick = {
-                            val data = saves.read(QUICK_SAVE)
-                            if (data == null) {
-                                note("There is no saved game.")
-                            } else {
-                                val error = session.restoreFrom(data)
-                                if (error != null) {
-                                    note(error)
-                                } else {
-                                    // The loop is parked mid-turn, so it will
-                                    // not describe the restored room by itself.
-                                    // "look" makes it show you where you are.
-                                    note("Restored.")
-                                    busy = true
-                                    scope.launch {
-                                        transcript += session.send("look") ?: ""
-                                        busy = false
-                                    }
-                                }
-                            }
-                        },
-                    ) { Text("Restore", fontSize = 12.sp) }
-
-                    TextButton(onClick = { generation++ }) { Text("Restart", fontSize = 12.sp) }
+                    TextButton(onClick = {
+                        // Starting over should not leave an autosave that would
+                        // silently resume the abandoned game on next launch.
+                        saves.delete(AUTOSAVE_SLOT)
+                        generation++
+                    }) { Text("Restart", fontSize = 12.sp) }
                 }
 
                 // The BSD notice has to be reachable from the screen; see
@@ -188,6 +175,47 @@ fun App(seed: Int = Random.nextInt(), saves: SaveStore = platformSaveStore()) {
 
             if (showAbout) {
                 AboutDialog(onDismiss = { showAbout = false })
+            }
+
+            if (showSaves) {
+                SavesDialog(
+                    slots = slots,
+                    autosaveOn = autosaveOn,
+                    onAutosaveChange = {
+                        autosaveOn = it
+                        settings.putBoolean(SETTING_AUTOSAVE, it)
+                    },
+                    onSave = { name ->
+                        val data = session.snapshot()
+                        when {
+                            data == null -> note("The game has not started yet.")
+                            saves.write(name, data) -> { slots = saves.list(); note("Saved as $name.") }
+                            else -> note("Could not save.")
+                        }
+                        showSaves = false
+                    },
+                    onLoad = { name ->
+                        val data = saves.read(name)
+                        if (data == null) {
+                            note("There is no save called $name.")
+                        } else {
+                            val error = session.restoreFrom(data)
+                            if (error != null) {
+                                note(error)
+                            } else {
+                                note("Loaded $name.")
+                                busy = true
+                                scope.launch {
+                                    transcript += session.send("look") ?: ""
+                                    busy = false
+                                }
+                            }
+                        }
+                        showSaves = false
+                    },
+                    onDelete = { name -> saves.delete(name); slots = saves.list() },
+                    onDismiss = { showSaves = false },
+                )
             }
         }
     }

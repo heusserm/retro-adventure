@@ -223,6 +223,13 @@ instantly with "command not found", and if you are piping through `grep` you
 see nothing at all and conclude the build hung. Use `gtimeout` (coreutils) or
 just let Gradle run.
 
+**The session's input channel is buffered, not a rendezvous.** A line sent
+after the game has ended suspends forever on a rendezvous, and closing the
+channel does not reliably wake the sender -- that was measured, not assumed.
+"The game just ended" is exactly when a player types one more thing, so the
+inbox buffers and the caller learns the game is over from the closed *output*
+channel instead.
+
 **Do not reflow the engine's output.** The game text was wrapped for a
 70-column terminal and reads badly on a phone, but the fix belongs in the app:
 `Reflow.kt` unwraps it for display only. Touching the engine's line breaks

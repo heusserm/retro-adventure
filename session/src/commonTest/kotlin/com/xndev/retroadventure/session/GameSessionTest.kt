@@ -7,6 +7,8 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertNotNull
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -110,6 +112,52 @@ class GameSessionTest {
         val look = assertNotNull(session.send("look"))
         assertContains(look, "inside a building")
 
+        session.close()
+    }
+
+    /**
+     * The branches nobody exercises by playing: a session that has not started,
+     * one that has been closed, and a game that ends on its own. These are the
+     * paths a UI hits when the user does something unexpected, and they are
+     * exactly where a bridge deadlocks rather than returning.
+     */
+    @Test
+    fun snapshotBeforeStartReturnsNothing() = runTest {
+        val session = GameSession(seed = 1)
+        assertNull(session.snapshot())
+        assertNotNull(session.restoreFrom("anything"))
+        assertContains(session.restoreFrom("anything")!!, "has not started")
+    }
+
+    @Test
+    fun sendingToAClosedSessionReturnsNullRatherThanHanging() = runTest {
+        val session = GameSession(seed = 1)
+        session.start(scope())
+        session.close()
+        assertFalse(session.isRunning, "close() should stop the session")
+        assertNull(session.send("n"), "a closed session must not block a caller")
+    }
+
+    @Test
+    fun quittingEndsTheSessionAndFurtherInputIsRefused() = runTest {
+        val session = GameSession(seed = 1)
+        session.start(scope())
+        session.send("n")
+        // quit asks for confirmation, then the game prints a score and stops.
+        assertNotNull(session.send("quit"))
+        val farewell = session.send("y")
+        assertNotNull(farewell)
+        assertContains(farewell, "You scored")
+
+        assertNull(session.send("look"), "the game is over; input must not block")
+        session.close()
+    }
+
+    @Test
+    fun aSecondStartIsRefused() = runTest {
+        val session = GameSession(seed = 1)
+        session.start(scope())
+        assertFailsWith<IllegalStateException> { session.start(scope()) }
         session.close()
     }
 
