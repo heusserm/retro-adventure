@@ -46,6 +46,15 @@ class ReflowTest {
     }
 
     @Test
+    fun shortConsecutiveLinesStayOnTheirOwnLines() {
+        // An inventory prints one item per line with no blank between them.
+        // Joining these produced "Brass lantern Black rod", which is how the
+        // bug was spotted -- in an App Store screenshot.
+        val inventory = "You are currently holding the following:\nBrass lantern\nBlack rod\n"
+        assertEquals(inventory, reflow(inventory))
+    }
+
+    @Test
     fun theEmptyTranscriptSurvives() {
         assertEquals("", reflow(""))
     }

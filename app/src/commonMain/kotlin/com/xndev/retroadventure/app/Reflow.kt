@@ -21,10 +21,20 @@ package com.xndev.retroadventure.app
  *  - Indented lines. The game uses leading tabs for its few centered flourishes
  *    such as the "- - -" divider in the instructions, and joining those onto the
  *    previous sentence would look like a bug.
+ *  - Short lines. Not every consecutive pair of lines is a wrapped sentence:
+ *    an inventory prints one item per line with no blank between them, and
+ *    joining those gave "Brass lantern Black rod" on one line. A line only
+ *    continues onto the next if it is long enough to have been wrapped in the
+ *    first place -- the game wraps at about seventy columns, so anything much
+ *    shorter than that ended where the author meant it to.
  */
+
+/** Below this length, a line ended because the author ended it. */
+private const val WRAP_WIDTH = 45
 fun reflow(text: String): String {
     val out = StringBuilder()
     val paragraph = StringBuilder()
+    var lastLineLength = 0
 
     fun flush() {
         if (paragraph.isNotEmpty()) {
@@ -53,8 +63,13 @@ fun reflow(text: String): String {
                 out.append(line).append('\n')
             }
             else -> {
-                if (paragraph.isNotEmpty()) paragraph.append(' ')
+                if (paragraph.isNotEmpty() && lastLineLength >= WRAP_WIDTH) {
+                    paragraph.append(' ')
+                } else {
+                    flush()
+                }
                 paragraph.append(line.trim())
+                lastLineLength = line.length
             }
         }
     }

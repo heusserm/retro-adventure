@@ -1,11 +1,13 @@
 package com.xndev.retroadventure.app
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,6 +30,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -53,6 +59,7 @@ fun App(
     settings: Settings = platformSettings(),
 ) {
     val scope = rememberCoroutineScope()
+    val focus: FocusManager = LocalFocusManager.current
     // Bumping this starts a fresh game: it re-keys the remember below, so the
     // old session and its transcript go away entirely.
     var generation by remember { mutableStateOf(0) }
@@ -106,7 +113,18 @@ fun App(
             // safeContentPadding() here as well insets twice and leaves a dead
             // band under the status bar -- that bug was live in EncounterDeck
             // for a while and is easy to reintroduce.
-            Column(Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
+            BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+                // Scale with the glass. See Typography.kt for why a tablet gets
+                // a bigger font and a narrower column rather than the same text
+                // stretched across thirteen inches.
+                val fontSize = transcriptFontSize(maxWidth.value).sp
+                val column = Modifier.widthIn(max = readingWidthDp(maxWidth.value).dp)
+                    .fillMaxWidth()
+
+                Column(
+                    Modifier.fillMaxSize().padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                 val scroll = rememberScrollState()
                 LaunchedEffect(transcript) { scroll.animateScrollTo(scroll.maxValue) }
 
@@ -115,12 +133,19 @@ fun App(
                     // to stay byte-exact for the transcript suite.
                     text = reflow(transcript),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll),
+                    fontSize = fontSize,
+                    modifier = Modifier.weight(1f).then(column).verticalScroll(scroll)
+                        // Tap the transcript to put the keyboard away. On a
+                        // tablet it otherwise sits there permanently, and on a
+                        // phone it covers half of what you are trying to read.
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { focus.clearFocus() },
                 )
 
                 Row(
-                    Modifier.fillMaxWidth(),
+                    column,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -149,7 +174,7 @@ fun App(
                 }
 
                 Row(
-                    Modifier.fillMaxWidth(),
+                    column,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     TextButton(
@@ -170,6 +195,7 @@ fun App(
                 // in is not.
                 TextButton(onClick = { showAbout = true }) {
                     Text(ATTRIBUTION_LINE, fontSize = 11.sp)
+                }
                 }
             }
 
