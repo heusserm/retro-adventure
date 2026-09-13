@@ -118,6 +118,7 @@ fun App(
                 // a bigger font and a narrower column rather than the same text
                 // stretched across thirteen inches.
                 val fontSize = transcriptFontSize(maxWidth.value).sp
+                val logoHeight = logoHeightDp(maxWidth.value)
                 val column = Modifier.widthIn(max = readingWidthDp(maxWidth.value).dp)
                     .fillMaxWidth()
 
@@ -127,6 +128,12 @@ fun App(
                 ) {
                 val scroll = rememberScrollState()
                 LaunchedEffect(transcript) { scroll.animateScrollTo(scroll.maxValue) }
+
+                // A row of its own rather than an overlay, so the logo never
+                // sits on top of game text as the transcript scrolls under it.
+                Row(column, horizontalArrangement = Arrangement.End) {
+                    PublisherLogo(heightDp = logoHeight)
+                }
 
                 Text(
                     // Display only -- see reflow(). The engine's own output has

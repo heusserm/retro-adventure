@@ -25,4 +25,10 @@ class TypographyTest {
         assertEquals(414f, readingWidthDp(414f))
         assertEquals(760f, readingWidthDp(1032f))
     }
+
+    @Test
+    fun theLogoIsSmallerOnAPhoneThanOnATablet() {
+        assertEquals(40, logoHeightDp(414f))
+        assertEquals(64, logoHeightDp(1032f))
+    }
 }

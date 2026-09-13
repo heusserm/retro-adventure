@@ -27,3 +27,6 @@ fun transcriptFontSize(widthDp: Float): Int = when {
  * the readable range instead of following the glass.
  */
 fun readingWidthDp(widthDp: Float): Float = minOf(widthDp, 760f)
+
+/** Height of the publisher logo, in dp: small on a phone, where lines count. */
+fun logoHeightDp(widthDp: Float): Int = if (widthDp < 600f) 40 else 64

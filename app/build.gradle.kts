@@ -25,6 +25,7 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
+            implementation(compose.components.resources)   // the Excelon logo
         }
         androidMain.dependencies {
             implementation("androidx.activity:activity-compose:1.9.3")
@@ -44,6 +45,10 @@ kotlin {
             implementation(compose.uiTest)
         }
     }
+}
+
+compose.resources {
+    packageOfResClass = "com.xndev.retroadventure.app.resources"
 }
 
 android {
