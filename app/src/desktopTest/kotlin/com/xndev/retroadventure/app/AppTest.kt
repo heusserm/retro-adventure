@@ -212,5 +212,6 @@ class AppTest {
         setContent { App(seed = 1, saves = FakeSaves(), settings = FakeSettings()) }
         onNodeWithText(ATTRIBUTION_LINE).performClick()
         onNodeWithText("Will Crowther and Don Woods", substring = true).assertIsDisplayed()
+        onNodeWithText(PORTING_CREDIT).assertIsDisplayed()
     }
 }

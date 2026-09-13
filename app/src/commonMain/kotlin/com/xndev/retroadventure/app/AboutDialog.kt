@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.sp
  */
 const val ATTRIBUTION_LINE = "Based on Open Adventure by Crowther, Woods and Raymond."
 
+/** Also in the game's own instructions; see adventure.yaml's CAVE_NEARBY. */
+const val PORTING_CREDIT = "Ported to mobile by Matthew Heusser."
+
 private const val BSD_NOTICE = """Copyright (c) 1977, 2005 by Will Crowther and Don Woods
 Game data copyright Eric S. Raymond
 
@@ -58,6 +61,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(ATTRIBUTION_LINE, fontSize = 13.sp)
+                Text(PORTING_CREDIT, fontSize = 13.sp)
                 Text("", fontSize = 13.sp)
                 Text(BSD_NOTICE, fontSize = 11.sp, textAlign = TextAlign.Start)
             }
