@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
@@ -53,13 +54,32 @@ compose.resources {
 
 android {
     namespace = "com.xndev.retroadventure.app"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "com.xndev.retroAdventure"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+    }
+    // Release signing reads the Play upload key from outside the repo, so a
+    // clone without ~/.android-keys still builds -- just an unsigned bundle.
+    val uploadProps = Properties().apply {
+        val f = file("${System.getProperty("user.home")}/.android-keys/upload.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    signingConfigs {
+        if (uploadProps.isNotEmpty()) create("upload") {
+            storeFile = file(uploadProps.getProperty("storeFile"))
+            storePassword = uploadProps.getProperty("storePassword")
+            keyAlias = uploadProps.getProperty("keyAlias")
+            keyPassword = uploadProps.getProperty("keyPassword")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("upload")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

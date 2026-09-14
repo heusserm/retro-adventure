@@ -34,7 +34,7 @@ tasks.withType<Test>().configureEach {
 
 android {
     namespace = "com.xndev.retroadventure.engine"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig { minSdk = 26 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
